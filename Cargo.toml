@@ -1,0 +1,10 @@
+[package]
+name = "interflow"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+alsa = "0.9.0"
+duplicate = "1.0.0"
+ndarray = "0.15.6"
+thiserror = "1.0.63"
