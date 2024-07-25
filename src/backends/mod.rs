@@ -1,4 +1,6 @@
-use crate::{AudioDevice, AudioDriver, AudioInputDevice, AudioOutputCallback, AudioOutputDevice, DeviceType};
+use crate::{
+    AudioDevice, AudioDriver, AudioInputDevice, AudioOutputCallback, AudioOutputDevice, DeviceType,
+};
 
 #[cfg(os_alsa)]
 pub mod alsa;
@@ -42,3 +44,5 @@ pub fn default_output_device() -> impl AudioOutputDevice {
     #[cfg(os_alsa)]
     default_output_device_from(&alsa::AlsaDriver)
 }
+#[cfg(os_wasapi)]
+pub mod wasapi;
