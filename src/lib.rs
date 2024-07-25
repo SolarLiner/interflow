@@ -1,4 +1,7 @@
+#![warn(missing_docs)]
+
 use std::borrow::Cow;
+use crate::channel_map::ChannelMap32;
 
 pub mod audio_buffer;
 pub mod backends;
@@ -11,12 +14,18 @@ pub trait AudioDriver {
     type Error: std::error::Error;
     type Device: AudioDevice;
 
+    /// Driver display name.
     const DISPLAY_NAME: &'static str;
 
+    /// Runtime version of the audio driver. If there is a difference between "client" and
+    /// "server" versions, then this should reflect the server version.
     fn version(&self) -> Result<Cow<str>, Self::Error>;
 
-    fn default_device(&self) -> Result<Self::Device, Self::Error>;
+    /// Default device of the given type. This is most often tied to the audio settings at the
+    /// operating system level.
+    fn default_device(&self, device_type: DeviceType) -> Result<Option<Self::Device>, Self::Error>;
 
+    /// List all devices available through this audio driver.
     fn list_devices(&self) -> Result<impl IntoIterator<Item = Self::Device>, Self::Error>;
 }
 
@@ -36,44 +45,43 @@ pub struct StreamConfig {
     pub samplerate: f64,
     /// Map of channels requested by the stream. Entries correspond in order to
     /// [AudioDevice::channel_map].
-    pub channels: ChannelMap,
-    pub buffer_size_min: Option<usize>,
-    pub buffer_size_max: Option<usize>,
+    pub channels: ChannelMap32,
+    /// Range of preferential buffer sizes. The library will make a bast-effort attempt at
+    /// honoring this setting, and in future versions may provide additional buffering to ensure
+    /// it, but for now you should not make assumptions on buffer sizes based on this setting.
+    pub buffer_size_range: (Option<usize>, Option<usize>),
 }
 
+/// Audio channel description.
 #[derive(Debug, Clone)]
 pub struct Channel<'a> {
+    /// Index of the channel in the device
     pub index: usize,
+    /// Display name for the channel, if available, else a generic name like "Channel 1"
     pub name: Cow<'a, str>,
 }
 
+/// Trait for types describing audio devices. Audio devices have zero or more inputs and outputs,
+/// and depending on the driver, can be duplex devices which can provide both of them at the same
+/// time natively.
 pub trait AudioDevice {
     type Error: std::error::Error;
-    type Stream<Callback>: AudioStream<Callback, Error=Self::Error>;
 
+    /// Device display name
     fn name(&self) -> Cow<str>;
 
+    /// Device type. Either input, output, or duplex.
     fn device_type(&self) -> DeviceType;
 
+    /// Iterator of the available channels in this device. Channel indices are used when
+    /// specifying which channels to open when creating an audio stream.
     fn channel_map(&self) -> impl IntoIterator<Item=Channel>;
 
+    /// Not all configuration values make sense for a particular device, and this method tests a
+    /// configuration to see if it can be used in an audio stream.
     fn is_config_supported(&self, config: &StreamConfig) -> bool;
 
-    fn enumerate_configurations(&self) -> impl IntoIterator<Item = StreamConfig>;
-
-    fn create_stream<Callback>(
-        &self,
-        config: StreamConfig,
-        callback: Callback,
-    ) -> Result<Self::Stream<Callback>, Self::Error>;
-}
-
-pub trait AudioStream<Callback>: Sized {
-    type Error: std::error::Error;
-
-    fn start(&self) -> Result<(), Self::Error>;
-
-    fn stop(&self) -> Result<(), Self::Error>;
-
-    fn eject(self) -> Callback;
+    /// Enumerate all possible configurations this device supports. If that is not provided by
+    /// the device, and not easily generated manually, this will return `None`.
+    fn enumerate_configurations(&self) -> Option<impl IntoIterator<Item=StreamConfig>>;
 }
