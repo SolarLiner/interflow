@@ -3,6 +3,7 @@ name = "interflow"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.80"
+license = "MIT"
 
 [dependencies]
 duplicate = "1.0.0"
