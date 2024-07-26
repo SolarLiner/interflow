@@ -17,7 +17,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v4
-    - name: Install dependencies
+    - name: Install dependencies (Linux)
+      if: ${{matrix.os == 'ubuntu-latest' }}
       run: sudo apt install libasound2-dev
     - name: Install Rust 1.80
       uses: actions-rs/toolchain@v1
