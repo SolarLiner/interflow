@@ -12,10 +12,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@master
-      - name: Install Rust
+      - name: Install Rust 1.80.0
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: stable
+          toolchain: 1.80.0
+      - name: Install dependencies
+        run: sudo apt install libasound2-dev
       - name: Run cargo bloat
         uses: orf/cargo-bloat-action@v1
         with:
