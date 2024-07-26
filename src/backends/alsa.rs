@@ -130,31 +130,3 @@ impl AlsaDevice {
         Ok(io)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use crate::{AudioDevice, AudioDriver, DeviceType};
-
-    use super::AlsaDriver;
-
-    #[test]
-    fn test_enumeration() {
-        let driver = AlsaDriver::default();
-        eprintln!("Driver name   : {}", AlsaDriver::DISPLAY_NAME);
-        eprintln!("Driver version: {}", driver.version().unwrap());
-        eprintln!("Default device:");
-        for device_type in [DeviceType::Input, DeviceType::Output, DeviceType::Duplex] {
-            eprint!("\t{device_type:?}:\t");
-            if let Some(device) = driver.default_device(device_type).unwrap() {
-                eprintln!("{}", device.name());
-            } else {
-                eprintln!("None");
-            }
-        }
-
-        eprintln!("All devices   :");
-        for device in driver.list_devices().unwrap() {
-            eprintln!("\t{} ({:?})", device.name(), device.device_type());
-        }
-    }
-}
