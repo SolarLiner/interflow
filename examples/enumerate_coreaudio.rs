@@ -1,9 +1,16 @@
-use interflow::backends::coreaudio::CoreAudioDriver;
-use interflow::{AudioDevice, AudioDriver};
 use std::error::Error;
 
-mod enumerate;
+mod util;
 
+#[cfg(os_coreaudio)]
 fn main() -> Result<(), Box<dyn Error>> {
-    enumerate::enumerate_devices(CoreAudioDriver)
+    use interflow::backends::coreaudio::CoreAudioDriver;
+    use crate::util::enumerate::enumerate_devices;
+    
+    enumerate_devices(CoreAudioDriver)
+}
+
+#[cfg(not(os_coreaudio))]
+fn main() {
+    println!("CoreAudio is not available on this platform");
 }

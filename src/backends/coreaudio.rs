@@ -1,3 +1,7 @@
+//! # CoreAudio backend
+//! 
+//! CoreAudio is the audio backend for macOS and iOS devices.
+
 use std::borrow::Cow;
 
 use coreaudio::audio_unit::audio_format::LinearPcmFlags;
@@ -12,15 +16,19 @@ use thiserror::Error;
 use crate::channel_map::Bitset;
 use crate::{AudioDevice, AudioDriver, Channel, DeviceType, StreamConfig};
 
+/// Type of errors from the CoreAudio backend
 #[derive(Debug, Error)]
 #[error("CoreAudio error:")]
 pub enum CoreAudioError {
+    /// Error originating from CoreAudio
     #[error("{0}")]
     BackendError(#[from] coreaudio::Error),
+    /// The scope given to an audio device is invalid.
     #[error("Invalid scope {0:?}")]
     InvalidScope(Scope),
 }
 
+/// The CoreAudio driver.
 #[derive(Debug, Copy, Clone)]
 pub struct CoreAudioDriver;
 
@@ -34,13 +42,7 @@ impl AudioDriver for CoreAudioDriver {
     }
 
     fn default_device(&self, device_type: DeviceType) -> Result<Option<Self::Device>, Self::Error> {
-        let (is_input, scope) = match device_type {
-            DeviceType::Input => (true, Scope::Input),
-            DeviceType::Output => (false, Scope::Output),
-            DeviceType::Duplex => {
-                return Ok(None);
-            }
-        };
+        let is_input = matches!(device_type, DeviceType::Input);
         let Some(device_id) = get_default_device_id(is_input) else {
             return Ok(None);
         };
@@ -69,6 +71,7 @@ impl AudioDriver for CoreAudioDriver {
     }
 }
 
+/// Type of devices available from the CoreAudio driver.
 pub struct CoreAudioDevice {
     device_id: AudioDeviceID,
     audio_unit: AudioUnit,
@@ -77,7 +80,6 @@ pub struct CoreAudioDevice {
 
 impl CoreAudioDevice {
     fn from_id(scope: Scope, device_id: AudioDeviceID) -> Result<Self, CoreAudioError> {
-        eprintln!("CoreAudioDevice::from_id(scope: {scope:?}, device_id: {device_id})");
         let device_type =
             Self::scope_to_valid_device_type(scope).ok_or(CoreAudioError::InvalidScope(scope))?;
         let is_input = matches!(scope, Scope::Input);
