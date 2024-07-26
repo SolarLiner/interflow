@@ -3,6 +3,9 @@ use crate::{AudioDevice, AudioDriver, AudioInputDevice, AudioOutputCallback, Aud
 #[cfg(os_alsa)]
 pub mod alsa;
 
+#[cfg(os_coreaudio)]
+pub mod coreaudio;
+
 pub fn default_driver() -> impl AudioDriver {
     #[cfg(os_alsa)]
     alsa::AlsaDriver

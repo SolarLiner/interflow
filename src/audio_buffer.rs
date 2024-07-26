@@ -54,7 +54,7 @@ impl<S: DataOwned> Default for AudioBufferBase<S> {
     }
 }
 
-impl<S: Data, S2: Data<Elem=S::Elem>> PartialEq<AudioBufferBase<S2>> for AudioBufferBase<S>
+impl<S: Data, S2: Data<Elem = S::Elem>> PartialEq<AudioBufferBase<S2>> for AudioBufferBase<S>
 where
     S::Elem: PartialEq<S::Elem>,
 {
@@ -374,11 +374,8 @@ impl<'a, T: Sample> AudioMut<'a, T> {
         }
     }
 
-    pub fn mix(
-        &mut self,
-        other: AudioRef<T>,
-        other_amplitude: T::Float,
-    ) where
+    pub fn mix(&mut self, other: AudioRef<T>, other_amplitude: T::Float)
+    where
         T: AddAssign<T>,
     {
         for (mut ch_a, ch_b) in self.channels_mut().zip(other.channels()) {

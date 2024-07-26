@@ -5,7 +5,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-use alsa::{device_name::HintIter, pcm, PCM};
+use alsa::{
+    device_name::HintIter,
+    pcm,
+    Direction, PCM,
+};
 use thiserror::Error;
 
 use crate::{
@@ -236,7 +240,7 @@ impl<Callback: 'static + Send + AudioInputCallback> AlsaStream<Callback> {
                     let input = AudioInput { buffer, timestamp };
                     callback.on_input_data(context, input);
                     timestamp += frames as u64;
-                    
+
                     match device.pcm.state() {
                         pcm::State::Suspended => {
                             if hwp.can_resume() {

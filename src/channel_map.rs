@@ -7,10 +7,10 @@ pub trait Bitset: Sized {
 
     fn set_index(&mut self, index: usize, value: bool);
 
-    fn indices(&self) -> impl IntoIterator<Item=usize> {
+    fn indices(&self) -> impl IntoIterator<Item = usize> {
         (0..self.capacity()).filter_map(|i| self.get_index(i).then_some(i))
     }
-    
+
     fn count(&self) -> usize {
         self.indices().into_iter().count()
     }
@@ -19,12 +19,16 @@ pub trait Bitset: Sized {
         self.set_index(index, value);
         self
     }
-    
+
     fn with_indices(mut self, indices: impl IntoIterator<Item=usize>) -> Self {
         for ix in indices {
             self.set_index(ix, true);
         }
         self
+    }
+
+    fn count(&self) -> usize {
+        self.indices().into_iter().count()
     }
 }
 
@@ -65,13 +69,13 @@ fn get_inner_bitset_at<T: Bitset>(arr: &[T], mut index: usize) -> Option<(usize,
         let mut acc = 0;
         move |(i, b)| {
             return match index.checked_sub(b.capacity()) {
-                None =>  Some((i, index)),
+                None => Some((i, index)),
                 Some(v) => {
                     index = v;
                     acc += b.capacity();
                     None
                 }
-            }
+            };
         }
     })
 }

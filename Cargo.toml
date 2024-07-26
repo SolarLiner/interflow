@@ -20,6 +20,9 @@ cfg_aliases = "0.2.1"
 [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd"))'.dependencies]
 alsa = "0.9.0"
 
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+coreaudio-rs = "0.12.0"
+
 [[example]]
 name = "enumerate_alsa"
 path = "examples/enumerate_alsa.rs"
