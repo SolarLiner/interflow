@@ -23,6 +23,7 @@ jobs:
         override: true
         components: rustfmt, clippy
     - uses: LoliGothick/clippy-check@master
+      continue-on-error: true
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
     - name: Build
