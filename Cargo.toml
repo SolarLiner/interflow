@@ -12,6 +12,7 @@ thiserror = "1.0.63"
 
 [dev-dependencies]
 anyhow = "1.0.86"
+indicatif = "0.17.8"
 
 [build-dependencies]
 cfg_aliases = "0.2.1"

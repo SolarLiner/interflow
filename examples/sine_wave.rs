@@ -1,18 +1,8 @@
 use std::f32::consts::TAU;
-use std::io::Read;
 
 use anyhow::Result;
 
-use interflow::{
-    AudioCallbackContext,
-    AudioDevice,
-    AudioOutput,
-    AudioOutputCallback,
-    AudioStreamHandle,
-    StreamConfig,
-    AudioOutputDevice,
-    backends::default_output_device
-};
+use interflow::prelude::*;
 
 fn main() -> Result<()> {
     let device = default_output_device();

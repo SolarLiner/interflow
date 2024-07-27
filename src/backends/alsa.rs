@@ -203,6 +203,7 @@ impl<Callback: 'static + Send + AudioInputCallback> AlsaStream<Callback> {
                 let (hwp, _, io) = device.apply_config(&stream_config)?;
                 let (_, period_size) = device.pcm.get_params()?;
                 let period_size = period_size as usize;
+                eprintln!("Period size: {period_size}");
                 let num_channels = hwp.get_channels()? as usize;
                 let samplerate = hwp.get_rate()? as f64;
                 let stream_config = StreamConfig {
@@ -213,13 +214,20 @@ impl<Callback: 'static + Send + AudioInputCallback> AlsaStream<Callback> {
                 };
                 let mut timestamp = Timestamp::new(samplerate);
                 let mut buffer = vec![0f32; period_size * num_channels];
+                device.pcm.prepare()?;
+                if device.pcm.state() != pcm::State::Running {
+                    device.pcm.start()?;
+                }
                 let _try = || loop {
                     if eject_signal.load(Ordering::Relaxed) {
                         break Ok(callback);
                     }
                     let frames = device.pcm.avail_update()? as usize;
                     let len = frames * num_channels;
-                    io.readi(&mut buffer[..len])?;
+                    match io.readi(&mut buffer[..len]) {
+                        Err(err) => device.pcm.try_recover(err, true)?,
+                        _ => {}
+                    }
                     let buffer = AudioRef::from_interleaved(&buffer[..len], num_channels).unwrap();
                     let context = AudioCallbackContext {
                         stream_config,
@@ -228,6 +236,18 @@ impl<Callback: 'static + Send + AudioInputCallback> AlsaStream<Callback> {
                     let input = AudioInput { buffer, timestamp };
                     callback.on_input_data(context, input);
                     timestamp += frames as u64;
+                    
+                    match device.pcm.state() {
+                        pcm::State::Suspended => {
+                            if hwp.can_resume() {
+                                device.pcm.resume()?;
+                            } else {
+                                device.pcm.prepare()?;
+                            }
+                        }
+                        pcm::State::Paused => std::thread::sleep(Duration::from_secs(1)),
+                        _ => {}
+                    }
                 };
                 _try()
             }

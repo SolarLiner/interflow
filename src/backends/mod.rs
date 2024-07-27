@@ -22,6 +22,11 @@ where
         .clone()
 }
 
+pub fn default_input_device() -> impl AudioInputDevice {
+    #[cfg(os_alsa)]
+    default_input_device_from(&alsa::AlsaDriver)
+}
+
 pub fn default_output_device_from<Driver: AudioDriver>(driver: &Driver) -> Driver::Device
 where
     Driver::Device: Clone + AudioOutputDevice,
