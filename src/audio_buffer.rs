@@ -178,6 +178,10 @@ impl<S: DataMut> AudioBufferBase<S> {
     pub fn channels_mut(&mut self) -> impl '_ + Iterator<Item = ArrayViewMut1<S::Elem>> {
         self.storage.rows_mut().into_iter()
     }
+    
+    pub fn as_interleaved_mut(&mut self) -> ArrayViewMut2<S::Elem> {
+        self.storage.view_mut().reversed_axes()
+    }
 }
 
 impl<S: DataOwned> AudioBufferBase<S> {

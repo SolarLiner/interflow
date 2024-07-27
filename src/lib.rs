@@ -1,11 +1,15 @@
 #![warn(missing_docs)]
 
 use std::borrow::Cow;
+
+use crate::audio_buffer::{AudioMut, AudioRef};
 use crate::channel_map::ChannelMap32;
+use crate::timestamp::Timestamp;
 
 pub mod audio_buffer;
 pub mod backends;
 pub mod channel_map;
+pub mod timestamp;
 
 /// Audio drivers provide access to the inputs and outputs of physical devices.
 /// Several drivers might provide the same accesses, some sharing it with other applications,
@@ -75,7 +79,7 @@ pub trait AudioDevice {
 
     /// Iterator of the available channels in this device. Channel indices are used when
     /// specifying which channels to open when creating an audio stream.
-    fn channel_map(&self) -> impl IntoIterator<Item=Channel>;
+    fn channel_map(&self) -> impl IntoIterator<Item = Channel>;
 
     /// Not all configuration values make sense for a particular device, and this method tests a
     /// configuration to see if it can be used in an audio stream.
@@ -83,5 +87,72 @@ pub trait AudioDevice {
 
     /// Enumerate all possible configurations this device supports. If that is not provided by
     /// the device, and not easily generated manually, this will return `None`.
-    fn enumerate_configurations(&self) -> Option<impl IntoIterator<Item=StreamConfig>>;
+    fn enumerate_configurations(&self) -> Option<impl IntoIterator<Item = StreamConfig>>;
+}
+
+/// Marker trait for values which are [Send] everywhere but on the web (as WASM does not yet have
+/// web targets.
+///
+/// This should only be used to define the traits and should not be relied upon in external code.
+#[cfg(not(wasm))]
+pub trait SendEverywhereButOnWeb: 'static + Send {}
+#[cfg(not(wasm))]
+impl<T: 'static + Send> SendEverywhereButOnWeb for T {}
+
+#[cfg(wasm)]
+pub trait SendEverywhereButOnWeb {}
+#[cfg(wasm)]
+impl<T> SendEverywhereButOnWeb for T {}
+
+pub trait AudioInputDevice: AudioDevice {
+    type StreamHandle<Callback: AudioInputCallback>: AudioStreamHandle<Callback>;
+
+    fn create_input_stream<
+        Callback: SendEverywhereButOnWeb + AudioInputCallback,
+    >(
+        &self,
+        stream_config: StreamConfig,
+        callback: Callback,
+    ) -> Result<Self::StreamHandle<Callback>, Self::Error>;
+}
+
+pub trait AudioOutputDevice: AudioDevice {
+    type StreamHandle<Callback: AudioOutputCallback>: AudioStreamHandle<Callback>;
+
+    fn create_output_stream<
+        Callback: SendEverywhereButOnWeb + AudioOutputCallback,
+    >(
+        &self,
+        stream_config: StreamConfig,
+        callback: Callback,
+    ) -> Result<Self::StreamHandle<Callback>, Self::Error>;
+}
+
+pub trait AudioStreamHandle<Callback> {
+    type Error: std::error::Error;
+
+    fn eject(self) -> Result<Callback, Self::Error>;
+}
+
+#[duplicate::duplicate_item(
+    name            bufty;
+    [AudioInput]    [AudioRef < 'a, T >];
+    [AudioOutput]   [AudioMut < 'a, T >];
+)]
+pub struct name<'a, T> {
+    pub timestamp: Timestamp,
+    pub buffer: bufty,
+}
+
+pub struct AudioCallbackContext {
+    pub stream_config: StreamConfig,
+    pub timestamp: Timestamp,
+}
+
+pub trait AudioInputCallback {
+    fn on_input_data(&mut self, context: AudioCallbackContext, input: AudioInput<f32>);
+}
+
+pub trait AudioOutputCallback {
+    fn on_output_data(&mut self, context: AudioCallbackContext, input: AudioOutput<f32>);
 }

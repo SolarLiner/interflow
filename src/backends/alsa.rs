@@ -1,24 +1,31 @@
 use core::fmt;
-use std::{
-    borrow::Cow,
-    convert::Infallible,
-    ffi::CStr
-    , rc::Rc,
-};
+use std::{borrow::Cow, convert::Infallible, ffi::CStr};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread::JoinHandle;
+use std::time::Duration;
 
-use alsa::{device_name::HintIter, pcm::{self, HwParams}, PCM};
+use alsa::{device_name::HintIter, pcm, PCM};
 use thiserror::Error;
 
-use crate::{AudioDevice, AudioDriver, Channel, DeviceType, StreamConfig};
+use crate::{
+    AudioCallbackContext, AudioDevice, AudioDriver, AudioInput, AudioInputCallback,
+    AudioInputDevice, AudioOutput, AudioOutputCallback, AudioOutputDevice, AudioStreamHandle,
+    Channel, DeviceType, StreamConfig,
+};
+use crate::audio_buffer::{AudioMut, AudioRef};
+use crate::channel_map::{Bitset, ChannelMap32};
+use crate::timestamp::Timestamp;
 
 #[derive(Debug, Error)]
 #[error("ALSA error: ")]
 pub enum AlsaError {
+    #[error("{0}")]
     BackendError(#[from] alsa::Error),
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct AlsaDriver {}
+pub struct AlsaDriver;
 
 impl AudioDriver for AlsaDriver {
     type Error = AlsaError;
@@ -34,7 +41,7 @@ impl AudioDriver for AlsaDriver {
         Ok(AlsaDevice::default_device(device_type)?)
     }
 
-    fn list_devices(&self) -> Result<impl IntoIterator<Item=Self::Device>, Self::Error> {
+    fn list_devices(&self) -> Result<impl IntoIterator<Item = Self::Device>, Self::Error> {
         const C_PCM: &CStr = match CStr::from_bytes_with_nul(b"pcm\0") {
             Ok(cstr) => cstr,
             Err(_) => unreachable!(),
@@ -44,8 +51,9 @@ impl AudioDriver for AlsaDriver {
     }
 }
 
+#[derive(Clone)]
 pub struct AlsaDevice {
-    pcm: Rc<PCM>,
+    pcm: Arc<PCM>,
     name: String,
     direction: alsa::Direction,
 }
@@ -73,7 +81,7 @@ impl AudioDevice for AlsaDevice {
         }
     }
 
-    fn channel_map(&self) -> impl IntoIterator<Item=Channel> {
+    fn channel_map(&self) -> impl IntoIterator<Item = Channel> {
         []
     }
 
@@ -81,25 +89,62 @@ impl AudioDevice for AlsaDevice {
         self.get_hwp(config).is_ok()
     }
 
-    fn enumerate_configurations(&self) -> Option<impl IntoIterator<Item=StreamConfig>> {
+    fn enumerate_configurations(&self) -> Option<impl IntoIterator<Item = StreamConfig>> {
         None::<[StreamConfig; 0]>
     }
 }
 
+impl AudioInputDevice for AlsaDevice {
+    type StreamHandle<Callback: AudioInputCallback> = AlsaStream<Callback>;
+
+    fn create_input_stream<Callback: 'static + Send + AudioInputCallback>(
+        &self,
+        stream_config: StreamConfig,
+        callback: Callback,
+    ) -> Result<Self::StreamHandle<Callback>, Self::Error> {
+        Ok(AlsaStream::new_input(
+            self.name.clone(),
+            stream_config,
+            callback,
+        ))
+    }
+}
+
+impl AudioOutputDevice for AlsaDevice {
+    type StreamHandle<Callback: AudioOutputCallback> = AlsaStream<Callback>;
+
+    fn create_output_stream<Callback: 'static + Send + AudioOutputCallback>(
+        &self,
+        stream_config: StreamConfig,
+        callback: Callback,
+    ) -> Result<Self::StreamHandle<Callback>, Self::Error> {
+        Ok(AlsaStream::new_output(
+            self.name.clone(),
+            stream_config,
+            callback,
+        ))
+    }
+}
+
 impl AlsaDevice {
+    /// Shortcut constructor for getting ALSA devices directly.
     pub fn default_device(device_type: DeviceType) -> Result<Option<Self>, alsa::Error> {
         let direction = match device_type {
             DeviceType::Input => alsa::Direction::Capture,
             DeviceType::Output => alsa::Direction::Playback,
             _ => return Ok(None),
         };
-        let pcm = Rc::new(PCM::new("default", direction, true)?);
-        Ok(Some(Self { pcm, direction, name: "default".to_string() }))
+        let pcm = Arc::new(PCM::new("default", direction, true)?);
+        Ok(Some(Self {
+            pcm,
+            direction,
+            name: "default".to_string(),
+        }))
     }
 
     fn new(name: &str, direction: alsa::Direction) -> Result<Self, alsa::Error> {
         let pcm = PCM::new(name, direction, true)?;
-        let pcm = Rc::new(pcm);
+        let pcm = Arc::new(pcm);
         Ok(Self {
             name: name.to_string(),
             direction,
@@ -107,16 +152,19 @@ impl AlsaDevice {
         })
     }
 
-    fn get_hwp(&self, config: &StreamConfig) -> Result<HwParams, alsa::Error> {
-        let hwp = HwParams::any(&self.pcm)?;
+    fn get_hwp(&self, config: &StreamConfig) -> Result<pcm::HwParams, alsa::Error> {
+        let hwp = pcm::HwParams::any(&self.pcm)?;
         hwp.set_channels(config.channels as _)?;
         hwp.set_rate(config.samplerate as _, alsa::ValueOr::Nearest)?;
         hwp.set_format(pcm::Format::float())?;
-        hwp.set_access(pcm::Access::RWNonInterleaved)?;
+        hwp.set_access(pcm::Access::RWInterleaved)?;
         Ok(hwp)
     }
 
-    fn apply_config(&self, config: &StreamConfig) -> Result<pcm::IO<f32>, alsa::Error> {
+    fn apply_config(
+        &self,
+        config: &StreamConfig,
+    ) -> Result<(pcm::HwParams, pcm::SwParams, pcm::IO<f32>), alsa::Error> {
         let hwp = self.get_hwp(config)?;
         self.pcm.hw_params(&hwp)?;
         let io = self.pcm.io_f32()?;
@@ -127,6 +175,134 @@ impl AlsaDevice {
 
         swp.set_start_threshold(hwp.get_buffer_size()?)?;
         self.pcm.sw_params(&swp)?;
-        Ok(io)
+        Ok((hwp, swp, io))
+    }
+}
+
+pub struct AlsaStream<Callback> {
+    eject_signal: Arc<AtomicBool>,
+    join_handle: JoinHandle<Result<Callback, AlsaError>>,
+}
+
+impl<Callback> AudioStreamHandle<Callback> for AlsaStream<Callback> {
+    type Error = AlsaError;
+
+    fn eject(self) -> Result<Callback, Self::Error> {
+        self.eject_signal.store(true, Ordering::Relaxed);
+        self.join_handle.join().unwrap()
+    }
+}
+
+impl<Callback: 'static + Send + AudioInputCallback> AlsaStream<Callback> {
+    fn new_input(name: String, stream_config: StreamConfig, mut callback: Callback) -> Self {
+        let eject_signal = Arc::new(AtomicBool::new(false));
+        let join_handle = std::thread::spawn({
+            let eject_signal = eject_signal.clone();
+            move || {
+                let device = AlsaDevice::new(&name, alsa::Direction::Capture)?;
+                let (hwp, _, io) = device.apply_config(&stream_config)?;
+                let (_, period_size) = device.pcm.get_params()?;
+                let period_size = period_size as usize;
+                let num_channels = hwp.get_channels()? as usize;
+                let samplerate = hwp.get_rate()? as f64;
+                let stream_config = StreamConfig {
+                    samplerate,
+                    channels: ChannelMap32::default()
+                        .with_indices(std::iter::repeat(1).take(num_channels)),
+                    buffer_size_range: (Some(period_size), Some(period_size)),
+                };
+                let mut timestamp = Timestamp::new(samplerate);
+                let mut buffer = vec![0f32; period_size * num_channels];
+                let _try = || loop {
+                    if eject_signal.load(Ordering::Relaxed) {
+                        break Ok(callback);
+                    }
+                    let frames = device.pcm.avail_update()? as usize;
+                    let len = frames * num_channels;
+                    io.readi(&mut buffer[..len])?;
+                    let buffer = AudioRef::from_interleaved(&buffer[..len], num_channels).unwrap();
+                    let context = AudioCallbackContext {
+                        stream_config,
+                        timestamp,
+                    };
+                    let input = AudioInput { buffer, timestamp };
+                    callback.on_input_data(context, input);
+                    timestamp += frames as u64;
+                };
+                _try()
+            }
+        });
+        Self {
+            eject_signal,
+            join_handle,
+        }
+    }
+}
+
+impl<Callback: 'static + Send + AudioOutputCallback> AlsaStream<Callback> {
+    fn new_output(name: String, stream_config: StreamConfig, mut callback: Callback) -> Self {
+        let eject_signal = Arc::new(AtomicBool::new(false));
+        let join_handle = std::thread::spawn({
+            let eject_signal = eject_signal.clone();
+            move || {
+                let device = AlsaDevice::new(&name, alsa::Direction::Playback)?;
+                let (hwp, _, io) = device.apply_config(&stream_config)?;
+                let (_, period_size) = device.pcm.get_params()?;
+                let period_size = period_size as usize;
+                let num_channels = hwp.get_channels()? as usize;
+                let samplerate = hwp.get_rate()? as f64;
+                let stream_config = StreamConfig {
+                    samplerate,
+                    channels: ChannelMap32::default()
+                        .with_indices(std::iter::repeat(1).take(num_channels)),
+                    buffer_size_range: (Some(period_size), Some(period_size)),
+                };
+                let frames = device.pcm.avail_update()? as usize;
+                let mut timestamp = Timestamp::new(samplerate);
+                let mut buffer = vec![0f32; frames * num_channels];
+                device.pcm.prepare()?;
+                if device.pcm.state() != pcm::State::Running {
+                    device.pcm.start()?;
+                }
+                let _try = || loop {
+                    if eject_signal.load(Ordering::Relaxed) {
+                        break Ok(callback);
+                    }
+                    let frames = device.pcm.avail_update()? as usize;
+                    let len = frames * num_channels;
+                    let context = AudioCallbackContext {
+                        stream_config,
+                        timestamp,
+                    };
+                    let input = AudioOutput {
+                        buffer: AudioMut::from_interleaved_mut(&mut buffer[..len], num_channels)
+                            .unwrap(),
+                        timestamp,
+                    };
+                    callback.on_output_data(context, input);
+                    timestamp += frames as u64;
+                    match io.writei(&buffer[..len]) {
+                        Err(err) => device.pcm.try_recover(err, true)?,
+                        _ => {}
+                    }
+                    match device.pcm.state() {
+                        pcm::State::Suspended => {
+                            if hwp.can_resume() {
+                                device.pcm.resume()?;
+                            } else {
+                                device.pcm.prepare()?;
+                            }
+                        }
+                        pcm::State::Paused => std::thread::sleep(Duration::from_secs(1)),
+                        _ => {}
+                    }
+                };
+                _try().inspect_err(|err| eprintln!("Audio thread error: {err}"))
+            }
+        });
+        Self {
+            eject_signal,
+            join_handle,
+        }
     }
 }
