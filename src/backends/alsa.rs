@@ -1,25 +1,21 @@
 use core::fmt;
-use std::{borrow::Cow, convert::Infallible, ffi::CStr};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
+use std::{borrow::Cow, convert::Infallible, ffi::CStr};
 
-use alsa::{
-    device_name::HintIter,
-    pcm,
-    Direction, PCM,
-};
+use alsa::{device_name::HintIter, pcm, Direction, PCM};
 use thiserror::Error;
 
+use crate::audio_buffer::{AudioMut, AudioRef};
+use crate::channel_map::{Bitset, ChannelMap32};
+use crate::timestamp::Timestamp;
 use crate::{
     AudioCallbackContext, AudioDevice, AudioDriver, AudioInput, AudioInputCallback,
     AudioInputDevice, AudioOutput, AudioOutputCallback, AudioOutputDevice, AudioStreamHandle,
     Channel, DeviceType, StreamConfig,
 };
-use crate::audio_buffer::{AudioMut, AudioRef};
-use crate::channel_map::{Bitset, ChannelMap32};
-use crate::timestamp::Timestamp;
 
 #[derive(Debug, Error)]
 #[error("ALSA error: ")]

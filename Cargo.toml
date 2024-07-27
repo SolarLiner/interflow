@@ -8,6 +8,7 @@ license = "MIT"
 [dependencies]
 duplicate = "1.0.0"
 ndarray = "0.15.6"
+oneshot = "0.1.8"
 thiserror = "1.0.63"
 
 [dev-dependencies]

@@ -11,16 +11,12 @@ pub trait Bitset: Sized {
         (0..self.capacity()).filter_map(|i| self.get_index(i).then_some(i))
     }
 
-    fn count(&self) -> usize {
-        self.indices().into_iter().count()
-    }
-
     fn with_index(&mut self, index: usize, value: bool) -> &mut Self {
         self.set_index(index, value);
         self
     }
 
-    fn with_indices(mut self, indices: impl IntoIterator<Item=usize>) -> Self {
+    fn with_indices(mut self, indices: impl IntoIterator<Item = usize>) -> Self {
         for ix in indices {
             self.set_index(ix, true);
         }
