@@ -5,25 +5,25 @@
 use std::borrow::Cow;
 use std::convert::Infallible;
 
+use coreaudio::audio_unit::{AudioUnit, Element, SampleFormat, Scope, StreamFormat};
 use coreaudio::audio_unit::audio_format::LinearPcmFlags;
 use coreaudio::audio_unit::macos_helpers::{
-    audio_unit_from_device_id, find_matching_physical_format, get_audio_device_ids_for_scope,
-    get_default_device_id, get_device_name, get_supported_physical_stream_formats,
-    set_device_physical_stream_format,
+    audio_unit_from_device_id, get_audio_device_ids_for_scope,
+    get_default_device_id, get_device_name, get_supported_physical_stream_formats
+    ,
 };
-use coreaudio::audio_unit::render_callback::{data, Args};
-use coreaudio::audio_unit::{AudioUnit, Element, SampleFormat, Scope, StreamFormat};
-use coreaudio::sys::{kAudioUnitProperty_StreamFormat, AudioDeviceID};
+use coreaudio::audio_unit::render_callback::{Args, data};
+use coreaudio::sys::{AudioDeviceID, kAudioUnitProperty_StreamFormat};
 use thiserror::Error;
 
-use crate::audio_buffer::AudioBuffer;
+use crate::{
+    AudioCallbackContext, AudioDevice, AudioDriver, AudioInput, AudioInputCallback,
+    AudioInputDevice, AudioOutput, AudioOutputCallback, AudioOutputDevice, AudioStreamHandle,
+    Channel, DeviceType, SendEverywhereButOnWeb, StreamConfig,
+};
+use crate::audio_buffer::{AudioBuffer, Sample};
 use crate::channel_map::Bitset;
 use crate::timestamp::Timestamp;
-use crate::{
-    AudioCallbackContext, AudioDevice, AudioDriver, AudioInputCallback, AudioInputDevice,
-    AudioOutput, AudioOutputCallback, AudioOutputDevice, AudioStreamHandle, Channel, DeviceType,
-    SendEverywhereButOnWeb, StreamConfig,
-};
 
 /// Type of errors from the CoreAudio backend
 #[derive(Debug, Error)]
@@ -143,34 +143,15 @@ impl AudioDevice for CoreAudioDevice {
         })
     }
 
-    fn is_config_supported(&self, config: &StreamConfig) -> bool {
-        let stream_format = StreamFormat {
-            sample_rate: config.samplerate,
-            sample_format: SampleFormat::F32,
-            flags: LinearPcmFlags::IS_NON_INTERLEAVED
-                | LinearPcmFlags::IS_PACKED
-                | LinearPcmFlags::IS_FLOAT,
-            channels: config.channels.count() as u32,
-        };
-        let Some(asbd) = find_matching_physical_format(self.device_id, stream_format) else {
-            return true;
-        };
-        if let Some(min_size) = config.buffer_size_range.0 {
-            if (asbd.mFramesPerPacket as usize) < min_size {
-                return false;
-            }
-        }
-        if let Some(max_size) = config.buffer_size_range.1 {
-            if (asbd.mFramesPerPacket as usize) > max_size {
-                return false;
-            }
-        }
-        return true;
+    fn is_config_supported(&self, _config: &StreamConfig) -> bool {
+        true
     }
 
     fn enumerate_configurations(&self) -> Option<impl IntoIterator<Item = StreamConfig>> {
         const TYPICAL_SAMPLERATES: [f64; 5] = [44100., 48000., 96000., 128000., 192000.];
-        let supported_list = get_supported_physical_stream_formats(self.device_id).ok()?;
+        let supported_list = get_supported_physical_stream_formats(self.device_id)
+            .inspect_err(|err| eprintln!("Error getting stream formats: {err}"))
+            .ok()?;
         Some(supported_list.into_iter().flat_map(|asbd| {
             let samplerate_range = asbd.mSampleRateRange.mMinimum..asbd.mSampleRateRange.mMaximum;
             TYPICAL_SAMPLERATES
@@ -179,11 +160,10 @@ impl AudioDevice for CoreAudioDevice {
                 .filter(move |sr| samplerate_range.contains(sr))
                 .map(move |sr| {
                     let channels = 1 << asbd.mFormat.mChannelsPerFrame as u32 - 1;
-                    let buf_size = asbd.mFormat.mFramesPerPacket as usize;
                     StreamConfig {
                         samplerate: sr,
                         channels,
-                        buffer_size_range: (Some(buf_size), Some(buf_size)),
+                        buffer_size_range: (None, None),
                     }
                 })
         }))
@@ -198,7 +178,7 @@ impl AudioInputDevice for CoreAudioDevice {
         stream_config: StreamConfig,
         callback: Callback,
     ) -> Result<Self::StreamHandle<Callback>, Self::Error> {
-        todo!()
+        CoreAudioStream::new_input(self.device_id, stream_config, callback)
     }
 }
 
@@ -226,8 +206,79 @@ impl<Callback> AudioStreamHandle<Callback> for CoreAudioStream<Callback> {
         let (tx, rx) = oneshot::channel();
         self.callback_retrieve.send(tx).unwrap();
         let callback = rx.recv().unwrap();
+        self.audio_unit.free_input_callback();
         self.audio_unit.free_render_callback();
         Ok(callback)
+    }
+}
+
+impl<Callback: 'static + Send + AudioInputCallback> CoreAudioStream<Callback> {
+    fn new_input(
+        device_id: AudioDeviceID,
+        stream_config: StreamConfig,
+        callback: Callback,
+    ) -> Result<Self, CoreAudioError> {
+        let mut audio_unit = audio_unit_from_device_id(device_id, true)?;
+        let stream_format = StreamFormat {
+            sample_rate: stream_config.samplerate,
+            sample_format: SampleFormat::I16,
+            flags: LinearPcmFlags::IS_NON_INTERLEAVED | LinearPcmFlags::IS_SIGNED_INTEGER,
+            channels: 1,
+        };
+        let asbd = stream_format.to_asbd();
+        audio_unit.set_property(
+            kAudioUnitProperty_StreamFormat,
+            Scope::Output,
+            Element::Input,
+            Some(&asbd),
+        )?;
+        let mut buffer = AudioBuffer::zeroed(
+            1,
+            stream_config.samplerate as _,
+        );
+
+        // Set up the callback retrieval process, within needing to make the callback `Sync`
+        let (tx, rx) = oneshot::channel::<oneshot::Sender<Callback>>();
+        let mut callback = Some(callback);
+        audio_unit.set_input_callback(move |mut args: Args<data::NonInterleaved<i16>>| {
+            eprintln!("[Input callback] block");
+            if let Ok(sender) = rx.try_recv() {
+                sender.send(callback.take().unwrap()).unwrap();
+                return Err(());
+            }
+            let mut buffer = buffer.slice_mut(..args.num_frames);
+            for (input, mut inner) in args.data.channels().zip(buffer.channels_mut()) {
+                for (s1, s2) in input.into_iter().zip(inner.iter_mut()) {
+                    *s2 = s1.into_float();
+                }
+            }
+            let timestamp =
+                Timestamp::from_count(stream_config.samplerate, args.time_stamp.mSampleTime as _);
+            let input = AudioInput {
+                buffer: buffer.as_ref(),
+                timestamp,
+            };
+            if let Some(callback) = &mut callback {
+                callback.on_input_data(
+                    AudioCallbackContext {
+                        stream_config,
+                        timestamp,
+                    },
+                    input,
+                );
+                for (input, inner) in args.data.channels_mut().zip(buffer.channels()) {
+                    for (s1, s2) in input.into_iter().zip(inner.iter()) {
+                        *s1 = i16::from_float(*s2);
+                    }
+                }
+            }
+            Ok(())
+        })?;
+        audio_unit.start()?;
+        Ok(Self {
+            audio_unit,
+            callback_retrieve: tx,
+        })
     }
 }
 
@@ -246,9 +297,6 @@ impl<Callback: 'static + Send + AudioOutputCallback> CoreAudioStream<Callback> {
                 | LinearPcmFlags::IS_FLOAT,
             channels: stream_config.channels.count() as _,
         };
-        let hw_asbd = find_matching_physical_format(device_id, hw_stream_format)
-            .ok_or(coreaudio::Error::UnsupportedStreamFormat)?;
-        set_device_physical_stream_format(device_id, hw_asbd)?;
         let asbd = hw_stream_format.to_asbd();
         audio_unit.set_property(
             kAudioUnitProperty_StreamFormat,
@@ -257,7 +305,7 @@ impl<Callback: 'static + Send + AudioOutputCallback> CoreAudioStream<Callback> {
             Some(&asbd),
         )?;
         let mut buffer = AudioBuffer::zeroed(
-            hw_asbd.mChannelsPerFrame as _,
+            stream_config.channels.count(),
             stream_config.samplerate as _,
         );
 
@@ -272,7 +320,10 @@ impl<Callback: 'static + Send + AudioOutputCallback> CoreAudioStream<Callback> {
             let mut buffer = buffer.slice_mut(..args.num_frames);
             let timestamp =
                 Timestamp::from_count(stream_config.samplerate, args.time_stamp.mSampleTime as _);
-            let output = AudioOutput { buffer: buffer.as_mut(), timestamp };
+            let output = AudioOutput {
+                buffer: buffer.as_mut(),
+                timestamp,
+            };
             if let Some(callback) = &mut callback {
                 callback.on_output_data(
                     AudioCallbackContext {
@@ -285,7 +336,6 @@ impl<Callback: 'static + Send + AudioOutputCallback> CoreAudioStream<Callback> {
                     output.copy_from_slice(inner.as_slice().unwrap());
                 }
             }
-            //timestamp += args.num_frames as u64;
             Ok(())
         })?;
         audio_unit.start()?;
