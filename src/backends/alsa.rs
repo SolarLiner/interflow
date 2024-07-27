@@ -6,7 +6,7 @@ use std::{
     , rc::Rc,
 };
 
-use alsa::{device_name::HintIter, Direction, pcm::{self, HwParams}, PCM};
+use alsa::{device_name::HintIter, pcm::{self, HwParams}, PCM};
 use thiserror::Error;
 
 use crate::{AudioDevice, AudioDriver, Channel, DeviceType, StreamConfig};
@@ -68,8 +68,8 @@ impl AudioDevice for AlsaDevice {
 
     fn device_type(&self) -> DeviceType {
         match self.direction {
-            Direction::Playback => DeviceType::Output,
-            Direction::Capture => DeviceType::Input,
+            alsa::Direction::Playback => DeviceType::Output,
+            alsa::Direction::Capture => DeviceType::Input,
         }
     }
 
@@ -89,8 +89,8 @@ impl AudioDevice for AlsaDevice {
 impl AlsaDevice {
     pub fn default_device(device_type: DeviceType) -> Result<Option<Self>, alsa::Error> {
         let direction = match device_type {
-            DeviceType::Input => Direction::Capture,
-            DeviceType::Output => Direction::Playback,
+            DeviceType::Input => alsa::Direction::Capture,
+            DeviceType::Output => alsa::Direction::Playback,
             _ => return Ok(None),
         };
         let pcm = Rc::new(PCM::new("default", direction, true)?);
