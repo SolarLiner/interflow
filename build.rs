@@ -5,6 +5,7 @@ fn main() {
     cfg_aliases! {
         wasm: { any(target_os = "wasm32") },
         os_alsa: { any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd",
-            target_os = "netbsd") }
+            target_os = "netbsd") },
+        os_coreaudio: { any (target_os = "macos", target_os = "ios") }
     }
 }

@@ -6,19 +6,13 @@ use interflow::timestamp::Timestamp;
 
 fn main() -> Result<()> {
     let device = default_input_device();
-    let config = StreamConfig {
-        samplerate: 48000.,
-        channels: 0b1,
-        buffer_size_range: (Some(16384), None),
-    };
-    assert!(device.is_config_supported(&config));
     let stream = device
-        .create_input_stream(config, RmsMeter::default())
+        .default_input_stream(RmsMeter::default())
         .unwrap();
     println!("Press Enter to stop");
     std::io::stdin().read_line(&mut String::new()).unwrap();
     let meter = stream.eject().unwrap();
-    meter.progress.finish();
+    meter.progress.finish_and_clear();
     Ok(())
 }
 

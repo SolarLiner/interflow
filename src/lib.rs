@@ -9,8 +9,8 @@ use crate::timestamp::Timestamp;
 pub mod audio_buffer;
 pub mod backends;
 pub mod channel_map;
-pub mod timestamp;
 pub mod prelude;
+pub mod timestamp;
 
 /// Audio drivers provide access to the inputs and outputs of physical devices.
 /// Several drivers might provide the same accesses, some sharing it with other applications,
@@ -107,26 +107,36 @@ impl<T> SendEverywhereButOnWeb for T {}
 
 pub trait AudioInputDevice: AudioDevice {
     type StreamHandle<Callback: AudioInputCallback>: AudioStreamHandle<Callback>;
+    fn default_input_config(&self) -> Result<StreamConfig, Self::Error>;
 
-    fn create_input_stream<
-        Callback: SendEverywhereButOnWeb + AudioInputCallback,
-    >(
+    fn create_input_stream<Callback: SendEverywhereButOnWeb + AudioInputCallback>(
         &self,
         stream_config: StreamConfig,
         callback: Callback,
     ) -> Result<Self::StreamHandle<Callback>, Self::Error>;
+    
+    fn default_input_stream<Callback: SendEverywhereButOnWeb + AudioInputCallback>(
+        &self, callback: Callback,
+    ) -> Result<Self::StreamHandle<Callback>, Self::Error> {
+        self.create_input_stream(self.default_input_config()?, callback)
+    }
 }
 
 pub trait AudioOutputDevice: AudioDevice {
     type StreamHandle<Callback: AudioOutputCallback>: AudioStreamHandle<Callback>;
+    fn default_output_config(&self) -> Result<StreamConfig, Self::Error>;
 
-    fn create_output_stream<
-        Callback: SendEverywhereButOnWeb + AudioOutputCallback,
-    >(
+    fn create_output_stream<Callback: SendEverywhereButOnWeb + AudioOutputCallback>(
         &self,
         stream_config: StreamConfig,
         callback: Callback,
     ) -> Result<Self::StreamHandle<Callback>, Self::Error>;
+    
+    fn default_output_stream<Callback: SendEverywhereButOnWeb + AudioOutputCallback>(
+        &self, callback: Callback,
+    ) -> Result<Self::StreamHandle<Callback>, Self::Error> {
+        self.create_output_stream(self.default_output_config()?, callback)
+    }
 }
 
 pub trait AudioStreamHandle<Callback> {

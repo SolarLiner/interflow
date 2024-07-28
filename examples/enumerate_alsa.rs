@@ -13,4 +13,3 @@ fn main() -> Result<(), Box<dyn Error>> {
 fn main() {
     println!("ALSA driver is not available on this platform");
 }
-
