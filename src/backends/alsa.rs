@@ -1,3 +1,10 @@
+//! # ALSA backend
+//! 
+//! ALSA is a generally available driver for Linux and BSD systems. It is the oldest of the Linux
+//! drivers supported in this library, and as such makes it a good fallback driver. Newer drivers
+//! (PulseAudio, PipeWire) offer ALSA-compatible APIs so that older software can still access the
+//! audio devices through them.
+
 use core::fmt;
 use std::{borrow::Cow, convert::Infallible, ffi::CStr};
 use std::sync::Arc;
@@ -17,13 +24,17 @@ use crate::audio_buffer::{AudioMut, AudioRef};
 use crate::channel_map::{Bitset, ChannelMap32};
 use crate::timestamp::Timestamp;
 
+/// Type of errors from using the ALSA backend.
 #[derive(Debug, Error)]
 #[error("ALSA error: ")]
 pub enum AlsaError {
+    /// Error originates from ALSA itself.
     #[error("{0}")]
     BackendError(#[from] alsa::Error),
 }
 
+/// ALSA driver type. ALSA is statically available without client configuration, therefore this type
+/// is zero-sized.
 #[derive(Debug, Clone, Default)]
 pub struct AlsaDriver;
 
@@ -51,6 +62,7 @@ impl AudioDriver for AlsaDriver {
     }
 }
 
+/// Type of ALSA devices. 
 #[derive(Clone)]
 pub struct AlsaDevice {
     pcm: Arc<PCM>,
@@ -179,6 +191,12 @@ impl AlsaDevice {
     }
 }
 
+/// Type of ALSA streams.
+/// 
+/// The audio stream implementation relies on the synchronous API for now, as the [`alsa`] crate 
+/// does not seem to wrap the asynchronous API as of now. A separate I/O thread is spawned when 
+/// creating a stream, and is stopped when caling [`AudioInputDevice::eject`] /
+/// [`AudioOutputDevice::eject`].
 pub struct AlsaStream<Callback> {
     eject_signal: Arc<AtomicBool>,
     join_handle: JoinHandle<Result<Callback, AlsaError>>,
