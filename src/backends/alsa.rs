@@ -86,10 +86,16 @@ impl AudioDevice for AlsaDevice {
     }
 
     fn is_config_supported(&self, config: &StreamConfig) -> bool {
-        self.get_hwp(config).is_ok()
+        self.get_hwp(config)
+            .inspect_err(|err| {
+                log::debug!("{config:#?}");
+                log::debug!("Configuration unsupported: {err}");
+            })
+            .is_ok()
     }
 
     fn enumerate_configurations(&self) -> Option<impl IntoIterator<Item = StreamConfig>> {
+        log::info!("TODO: enumerate configurations");
         None::<[StreamConfig; 0]>
     }
 }
@@ -171,6 +177,9 @@ impl AlsaDevice {
         let hwp = self.pcm.hw_params_current()?;
         let swp = self.pcm.sw_params_current()?;
 
+        log::debug!("Apply config: hwp {hwp:#?}");
+        log::debug!("Apply config: swp {swp:#?}");
+
         // TODO: Forward buffer size hints
 
         swp.set_start_threshold(hwp.get_buffer_size()?)?;
@@ -203,9 +212,11 @@ impl<Callback: 'static + Send + AudioInputCallback> AlsaStream<Callback> {
                 let (hwp, _, io) = device.apply_config(&stream_config)?;
                 let (_, period_size) = device.pcm.get_params()?;
                 let period_size = period_size as usize;
-                eprintln!("Period size: {period_size}");
+                log::info!("Period size : {period_size}");
                 let num_channels = hwp.get_channels()? as usize;
+                log::info!("Num channels: {num_channels}");
                 let samplerate = hwp.get_rate()? as f64;
+                log::info!("Sample rate : {samplerate}");
                 let stream_config = StreamConfig {
                     samplerate,
                     channels: ChannelMap32::default()
@@ -216,16 +227,22 @@ impl<Callback: 'static + Send + AudioInputCallback> AlsaStream<Callback> {
                 let mut buffer = vec![0f32; period_size * num_channels];
                 device.pcm.prepare()?;
                 if device.pcm.state() != pcm::State::Running {
+                    log::info!("Device not already started, starting now");
                     device.pcm.start()?;
                 }
                 let _try = || loop {
                     if eject_signal.load(Ordering::Relaxed) {
+                        log::debug!("Eject requested, returning ownership of callback");
                         break Ok(callback);
                     }
                     let frames = device.pcm.avail_update()? as usize;
                     let len = frames * num_channels;
                     match io.readi(&mut buffer[..len]) {
-                        Err(err) => device.pcm.try_recover(err, true)?,
+                        Err(err) => {
+                            log::warn!("ALSA PCM error, trying to recover ...");
+                            log::debug!("Error: {err}");
+                            device.pcm.try_recover(err, true)?;
+                        }
                         _ => {}
                     }
                     let buffer = AudioRef::from_interleaved(&buffer[..len], num_channels).unwrap();
@@ -236,7 +253,7 @@ impl<Callback: 'static + Send + AudioInputCallback> AlsaStream<Callback> {
                     let input = AudioInput { buffer, timestamp };
                     callback.on_input_data(context, input);
                     timestamp += frames as u64;
-                    
+
                     match device.pcm.state() {
                         pcm::State::Suspended => {
                             if hwp.can_resume() {
@@ -269,8 +286,11 @@ impl<Callback: 'static + Send + AudioOutputCallback> AlsaStream<Callback> {
                 let (hwp, _, io) = device.apply_config(&stream_config)?;
                 let (_, period_size) = device.pcm.get_params()?;
                 let period_size = period_size as usize;
+                log::debug!("Period size : {period_size}");
                 let num_channels = hwp.get_channels()? as usize;
+                log::debug!("Num channels: {num_channels}");
                 let samplerate = hwp.get_rate()? as f64;
+                log::debug!("Sample rate : {samplerate}");
                 let stream_config = StreamConfig {
                     samplerate,
                     channels: ChannelMap32::default()
@@ -308,8 +328,12 @@ impl<Callback: 'static + Send + AudioOutputCallback> AlsaStream<Callback> {
                     match device.pcm.state() {
                         pcm::State::Suspended => {
                             if hwp.can_resume() {
+                                log::debug!("Stream suspended, resuming");
                                 device.pcm.resume()?;
                             } else {
+                                log::debug!(
+                                    "Stream suspended but cannot resume, re-prepare instead"
+                                );
                                 device.pcm.prepare()?;
                             }
                         }
@@ -317,7 +341,7 @@ impl<Callback: 'static + Send + AudioOutputCallback> AlsaStream<Callback> {
                         _ => {}
                     }
                 };
-                _try().inspect_err(|err| eprintln!("Audio thread error: {err}"))
+                _try().inspect_err(|err| log::error!("Audio thread error: {err}"))
             }
         });
         Self {
