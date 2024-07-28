@@ -6,12 +6,6 @@ use interflow::prelude::*;
 
 fn main() -> Result<()> {
     let device = default_output_device();
-    let config = StreamConfig {
-        samplerate: 48000.,
-        channels: 0b11,
-        buffer_size_range: (None, None),
-    };
-    assert!(device.is_config_supported(&config));
     println!("Using device {}", device.name());
     let stream = device
         .default_output_stream(

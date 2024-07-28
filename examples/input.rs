@@ -6,12 +6,6 @@ use interflow::timestamp::Timestamp;
 
 fn main() -> Result<()> {
     let device = default_input_device();
-    let config = StreamConfig {
-        samplerate: 48000.,
-        channels: 0b1,
-        buffer_size_range: (Some(16384), None),
-    };
-    assert!(device.is_config_supported(&config));
     let stream = device
         .default_input_stream(RmsMeter::default())
         .unwrap();
