@@ -5,6 +5,8 @@ use anyhow::Result;
 use interflow::prelude::*;
 
 fn main() -> Result<()> {
+    env_logger::init();
+    
     let device = default_output_device();
     let config = StreamConfig {
         samplerate: 48000.,
