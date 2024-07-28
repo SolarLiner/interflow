@@ -1,21 +1,21 @@
 use core::fmt;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::{borrow::Cow, ffi::CStr};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
 use std::time::Duration;
-use std::{borrow::Cow, convert::Infallible, ffi::CStr};
 
-use alsa::{device_name::HintIter, pcm, Direction, PCM};
+use alsa::{device_name::HintIter, pcm, PCM};
 use thiserror::Error;
 
-use crate::audio_buffer::{AudioMut, AudioRef};
-use crate::channel_map::{Bitset, ChannelMap32};
-use crate::timestamp::Timestamp;
 use crate::{
     AudioCallbackContext, AudioDevice, AudioDriver, AudioInput, AudioInputCallback,
     AudioInputDevice, AudioOutput, AudioOutputCallback, AudioOutputDevice, AudioStreamHandle,
     Channel, DeviceType, StreamConfig,
 };
+use crate::audio_buffer::{AudioMut, AudioRef};
+use crate::channel_map::{Bitset, ChannelMap32};
+use crate::timestamp::Timestamp;
 
 #[derive(Debug, Error)]
 #[error("ALSA error: ")]
@@ -68,7 +68,7 @@ impl fmt::Debug for AlsaDevice {
 }
 
 impl AudioDevice for AlsaDevice {
-    type Error = Infallible;
+    type Error = AlsaError;
 
     fn name(&self) -> Cow<str> {
         Cow::Borrowed(self.name.as_str())
@@ -97,6 +97,10 @@ impl AudioDevice for AlsaDevice {
 impl AudioInputDevice for AlsaDevice {
     type StreamHandle<Callback: AudioInputCallback> = AlsaStream<Callback>;
 
+    fn default_input_config(&self) -> Result<StreamConfig, Self::Error> {
+        self.default_config()
+    }
+
     fn create_input_stream<Callback: 'static + Send + AudioInputCallback>(
         &self,
         stream_config: StreamConfig,
@@ -112,6 +116,10 @@ impl AudioInputDevice for AlsaDevice {
 
 impl AudioOutputDevice for AlsaDevice {
     type StreamHandle<Callback: AudioOutputCallback> = AlsaStream<Callback>;
+
+    fn default_output_config(&self) -> Result<StreamConfig, Self::Error> {
+        self.default_config()
+    }
 
     fn create_output_stream<Callback: 'static + Send + AudioOutputCallback>(
         &self,
@@ -176,6 +184,17 @@ impl AlsaDevice {
         swp.set_start_threshold(hwp.get_buffer_size()?)?;
         self.pcm.sw_params(&swp)?;
         Ok((hwp, swp, io))
+    }
+
+    fn default_config(&self) -> Result<StreamConfig, AlsaError> {
+        let samplerate = 48000.; // Default ALSA sample rate
+        let channel_count = 2; // Stereo stream
+        let channels = 1 << channel_count - 1;
+        Ok(StreamConfig {
+            samplerate: samplerate as _,
+            channels,
+            buffer_size_range: (None, None),
+        })
     }
 }
 
