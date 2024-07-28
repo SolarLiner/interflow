@@ -13,7 +13,7 @@ use coreaudio::audio_unit::macos_helpers::{
     ,
 };
 use coreaudio::audio_unit::render_callback::{Args, data};
-use coreaudio::sys::{AudioDeviceID, kAudioUnitProperty_StreamFormat};
+use coreaudio::sys::{AudioDeviceID, kAudioUnitProperty_SampleRate, kAudioUnitProperty_StreamFormat};
 use thiserror::Error;
 
 use crate::{
@@ -23,6 +23,7 @@ use crate::{
 };
 use crate::audio_buffer::{AudioBuffer, Sample};
 use crate::channel_map::Bitset;
+use crate::prelude::ChannelMap32;
 use crate::timestamp::Timestamp;
 
 /// Type of errors from the CoreAudio backend
@@ -170,8 +171,29 @@ impl AudioDevice for CoreAudioDevice {
     }
 }
 
+fn input_stream_format(sample_rate: f64) -> StreamFormat {
+    StreamFormat {
+        sample_rate,
+        sample_format: SampleFormat::I16,
+        flags: LinearPcmFlags::IS_NON_INTERLEAVED | LinearPcmFlags::IS_SIGNED_INTEGER,
+        channels: 1,
+    }
+}
+
 impl AudioInputDevice for CoreAudioDevice {
     type StreamHandle<Callback: AudioInputCallback> = CoreAudioStream<Callback>;
+
+    fn default_input_config(&self) -> Result<StreamConfig, Self::Error> {
+        let audio_unit = audio_unit_from_device_id(self.device_id, true)?;
+        let samplerate = audio_unit.get_property::<f64>(kAudioUnitProperty_SampleRate,
+                                                        Scope::Input,
+                                                        Element::Input)?;
+        Ok(StreamConfig {
+            channels: 0b1, // Hardcoded to mono on non-interleaved inputs
+            samplerate,
+            buffer_size_range: (None, None),
+        })
+    }
 
     fn create_input_stream<Callback: SendEverywhereButOnWeb + AudioInputCallback>(
         &self,
@@ -182,8 +204,27 @@ impl AudioInputDevice for CoreAudioDevice {
     }
 }
 
+fn output_stream_format(sample_rate: f64, channels: ChannelMap32) -> StreamFormat {
+    StreamFormat {
+        sample_rate,
+        sample_format: SampleFormat::F32,
+        flags: LinearPcmFlags::IS_NON_INTERLEAVED | LinearPcmFlags::IS_FLOAT,
+        channels,
+    }
+}
+
 impl AudioOutputDevice for CoreAudioDevice {
     type StreamHandle<Callback: AudioOutputCallback> = CoreAudioStream<Callback>;
+    
+    fn default_output_config(&self) -> Result<StreamConfig, Self::Error> {
+        let audio_unit = audio_unit_from_device_id(self.device_id, false)?;
+        let samplerate = audio_unit.sample_rate()?;
+        Ok(StreamConfig {
+            samplerate,
+            buffer_size_range: (None, None),
+            channels: 0b11,
+        })
+    }
 
     fn create_output_stream<Callback: SendEverywhereButOnWeb + AudioOutputCallback>(
         &self,
@@ -219,13 +260,7 @@ impl<Callback: 'static + Send + AudioInputCallback> CoreAudioStream<Callback> {
         callback: Callback,
     ) -> Result<Self, CoreAudioError> {
         let mut audio_unit = audio_unit_from_device_id(device_id, true)?;
-        let stream_format = StreamFormat {
-            sample_rate: stream_config.samplerate,
-            sample_format: SampleFormat::I16,
-            flags: LinearPcmFlags::IS_NON_INTERLEAVED | LinearPcmFlags::IS_SIGNED_INTEGER,
-            channels: 1,
-        };
-        let asbd = stream_format.to_asbd();
+        let asbd = input_stream_format(stream_config.samplerate).to_asbd();
         audio_unit.set_property(
             kAudioUnitProperty_StreamFormat,
             Scope::Output,
@@ -288,15 +323,7 @@ impl<Callback: 'static + Send + AudioOutputCallback> CoreAudioStream<Callback> {
         callback: Callback,
     ) -> Result<Self, CoreAudioError> {
         let mut audio_unit = audio_unit_from_device_id(device_id, false)?;
-        let hw_stream_format = StreamFormat {
-            sample_rate: stream_config.samplerate,
-            sample_format: SampleFormat::F32,
-            flags: LinearPcmFlags::IS_NON_INTERLEAVED
-                | LinearPcmFlags::IS_PACKED
-                | LinearPcmFlags::IS_FLOAT,
-            channels: stream_config.channels.count() as _,
-        };
-        let asbd = hw_stream_format.to_asbd();
+        let asbd = output_stream_format(stream_config.samplerate, stream_config.channels).to_asbd();
         audio_unit.set_property(
             kAudioUnitProperty_StreamFormat,
             Scope::Input,

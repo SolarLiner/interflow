@@ -14,8 +14,7 @@ fn main() -> Result<()> {
     assert!(device.is_config_supported(&config));
     println!("Using device {}", device.name());
     let stream = device
-        .create_output_stream(
-            config,
+        .default_output_stream(
             SineWave {
                 frequency: 440.,
                 phase: 0.,

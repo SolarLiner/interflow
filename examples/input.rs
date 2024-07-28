@@ -13,7 +13,7 @@ fn main() -> Result<()> {
     };
     assert!(device.is_config_supported(&config));
     let stream = device
-        .create_input_stream(config, RmsMeter::default())
+        .default_input_stream(RmsMeter::default())
         .unwrap();
     println!("Press Enter to stop");
     std::io::stdin().read_line(&mut String::new()).unwrap();
