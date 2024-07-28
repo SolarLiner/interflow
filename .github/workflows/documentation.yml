@@ -32,6 +32,9 @@ jobs:
         run: git fetch --force --prune --tags --unshallow
       - name: Set up Rust toolchain
         uses: actions-rs/toolchain@v1
+        with:
+          toolchain: 1.80.0
+          default: true
       - name: Build documentation
         run: cargo doc --all-features --no-deps
       - name: Fix permissions
