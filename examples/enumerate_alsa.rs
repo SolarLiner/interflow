@@ -11,4 +11,3 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 fn main() {
     println!("ALSA driver is not available on this platform");
 }
-
