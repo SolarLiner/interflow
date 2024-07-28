@@ -237,11 +237,10 @@ impl<Callback: 'static + Send + AudioInputCallback> CoreAudioStream<Callback> {
             stream_config.samplerate as _,
         );
 
-        // Set up the callback retrieval process, within needing to make the callback `Sync`
+        // Set up the callback retrieval process, without needing to make the callback `Sync`
         let (tx, rx) = oneshot::channel::<oneshot::Sender<Callback>>();
         let mut callback = Some(callback);
         audio_unit.set_input_callback(move |mut args: Args<data::NonInterleaved<i16>>| {
-            eprintln!("[Input callback] block");
             if let Ok(sender) = rx.try_recv() {
                 sender.send(callback.take().unwrap()).unwrap();
                 return Err(());

@@ -18,7 +18,7 @@ fn main() -> Result<()> {
     println!("Press Enter to stop");
     std::io::stdin().read_line(&mut String::new()).unwrap();
     let meter = stream.eject().unwrap();
-    meter.progress.finish();
+    meter.progress.finish_and_clear();
     Ok(())
 }
 
