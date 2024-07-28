@@ -36,7 +36,7 @@ use std::time::Duration;
 /// let ts = Timestamp::from_count(48000., 48);
 /// let ts_off = ts + Duration::from_millis(100);
 /// assert_eq!(ts_off.as_duration(), Duration::from_millis(101));
-/// assert_eq!(ts_off.counter, 448);
+/// assert_eq!(ts_off.counter, 4848);
 /// ```
 /// 
 /// Or simply construct a [`Timestamp`] from a specified duration:
@@ -44,7 +44,7 @@ use std::time::Duration;
 /// ```rust
 /// use std::time::Duration;
 /// use interflow::timestamp::Timestamp;
-/// let ts = Timestamp::from_duration(44100., Duration::from_micros(44_100));
+/// let ts = Timestamp::from_duration(44100., Duration::from_millis(1));
 /// assert_eq!(ts.counter, 44); // Note that the conversion is lossy, as only whole samples are 
 ///                             // stored in the timestamp.
 /// ```
