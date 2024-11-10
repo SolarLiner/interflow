@@ -5,6 +5,8 @@ use interflow::prelude::*;
 use interflow::timestamp::Timestamp;
 
 fn main() -> Result<()> {
+    env_logger::init();
+    
     let device = default_input_device();
     let stream = device
         .default_input_stream(RmsMeter::default())
