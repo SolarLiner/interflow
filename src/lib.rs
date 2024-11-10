@@ -148,7 +148,8 @@ pub trait AudioInputDevice: AudioDevice {
     ) -> Result<Self::StreamHandle<Callback>, Self::Error>;
 
     fn default_input_stream<Callback: SendEverywhereButOnWeb + AudioInputCallback>(
-        &self, callback: Callback,
+        &self,
+        callback: Callback,
     ) -> Result<Self::StreamHandle<Callback>, Self::Error> {
         self.create_input_stream(self.default_input_config()?, callback)
     }
@@ -178,7 +179,8 @@ pub trait AudioOutputDevice: AudioDevice {
     ) -> Result<Self::StreamHandle<Callback>, Self::Error>;
 
     fn default_output_stream<Callback: SendEverywhereButOnWeb + AudioOutputCallback>(
-        &self, callback: Callback,
+        &self,
+        callback: Callback,
     ) -> Result<Self::StreamHandle<Callback>, Self::Error> {
         self.create_output_stream(self.default_output_config()?, callback)
     }

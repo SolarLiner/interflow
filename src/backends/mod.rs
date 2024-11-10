@@ -3,9 +3,8 @@
 //! Home of the various backends supported by the library.
 //!
 //! Each backend is provided in its own submodule. Types should be public so that the user isn't
-//! limited to going through the main API if they want to choose a specific backend.use crate::{
-    AudioDriver, AudioInputDevice, AudioOutputDevice, DeviceType,
-};
+//! limited to going through the main API if they want to choose a specific backend.
+use crate::{AudioDriver, AudioInputDevice, AudioOutputDevice, DeviceType};
 
 #[cfg(os_alsa)]
 pub mod alsa;
@@ -43,10 +42,7 @@ where
     driver
         .default_device(DeviceType::Input)
         .expect("Audio driver error")
-        .expect(
-            "No \
-    default device found",
-        )
+        .expect("No default device found")
         .clone()
 }
 
@@ -75,7 +71,6 @@ where
         .expect("No default device found")
         .clone()
 }
-
 
 /// Default output device from the default driver for this platform.
 ///

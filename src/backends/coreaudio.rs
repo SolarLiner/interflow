@@ -5,26 +5,27 @@
 use std::borrow::Cow;
 use std::convert::Infallible;
 
-use coreaudio::audio_unit::{AudioUnit, Element, SampleFormat, Scope, StreamFormat};
 use coreaudio::audio_unit::audio_format::LinearPcmFlags;
 use coreaudio::audio_unit::macos_helpers::{
-    audio_unit_from_device_id, get_audio_device_ids_for_scope,
-    get_default_device_id, get_device_name, get_supported_physical_stream_formats
-    ,
+    audio_unit_from_device_id, get_audio_device_ids_for_scope, get_default_device_id,
+    get_device_name, get_supported_physical_stream_formats,
 };
-use coreaudio::audio_unit::render_callback::{Args, data};
-use coreaudio::sys::{AudioDeviceID, kAudioUnitProperty_SampleRate, kAudioUnitProperty_StreamFormat};
+use coreaudio::audio_unit::render_callback::{data, Args};
+use coreaudio::audio_unit::{AudioUnit, Element, SampleFormat, Scope, StreamFormat};
+use coreaudio::sys::{
+    kAudioUnitProperty_SampleRate, kAudioUnitProperty_StreamFormat, AudioDeviceID,
+};
 use thiserror::Error;
 
+use crate::audio_buffer::{AudioBuffer, Sample};
+use crate::channel_map::Bitset;
+use crate::prelude::ChannelMap32;
+use crate::timestamp::Timestamp;
 use crate::{
     AudioCallbackContext, AudioDevice, AudioDriver, AudioInput, AudioInputCallback,
     AudioInputDevice, AudioOutput, AudioOutputCallback, AudioOutputDevice, AudioStreamHandle,
     Channel, DeviceType, SendEverywhereButOnWeb, StreamConfig,
 };
-use crate::audio_buffer::{AudioBuffer, Sample};
-use crate::channel_map::Bitset;
-use crate::prelude::ChannelMap32;
-use crate::timestamp::Timestamp;
 
 /// Type of errors from the CoreAudio backend
 #[derive(Debug, Error)]
@@ -185,9 +186,11 @@ impl AudioInputDevice for CoreAudioDevice {
 
     fn default_input_config(&self) -> Result<StreamConfig, Self::Error> {
         let audio_unit = audio_unit_from_device_id(self.device_id, true)?;
-        let samplerate = audio_unit.get_property::<f64>(kAudioUnitProperty_SampleRate,
-                                                        Scope::Input,
-                                                        Element::Input)?;
+        let samplerate = audio_unit.get_property::<f64>(
+            kAudioUnitProperty_SampleRate,
+            Scope::Input,
+            Element::Input,
+        )?;
         Ok(StreamConfig {
             channels: 0b1, // Hardcoded to mono on non-interleaved inputs
             samplerate,
@@ -215,7 +218,7 @@ fn output_stream_format(sample_rate: f64, channels: ChannelMap32) -> StreamForma
 
 impl AudioOutputDevice for CoreAudioDevice {
     type StreamHandle<Callback: AudioOutputCallback> = CoreAudioStream<Callback>;
-    
+
     fn default_output_config(&self) -> Result<StreamConfig, Self::Error> {
         let audio_unit = audio_unit_from_device_id(self.device_id, false)?;
         let samplerate = audio_unit.sample_rate()?;
@@ -267,10 +270,7 @@ impl<Callback: 'static + Send + AudioInputCallback> CoreAudioStream<Callback> {
             Element::Input,
             Some(&asbd),
         )?;
-        let mut buffer = AudioBuffer::zeroed(
-            1,
-            stream_config.samplerate as _,
-        );
+        let mut buffer = AudioBuffer::zeroed(1, stream_config.samplerate as _);
 
         // Set up the callback retrieval process, without needing to make the callback `Sync`
         let (tx, rx) = oneshot::channel::<oneshot::Sender<Callback>>();

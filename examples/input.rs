@@ -6,11 +6,9 @@ use interflow::timestamp::Timestamp;
 
 fn main() -> Result<()> {
     env_logger::init();
-    
+
     let device = default_input_device();
-    let stream = device
-        .default_input_stream(RmsMeter::default())
-        .unwrap();
+    let stream = device.default_input_stream(RmsMeter::default()).unwrap();
     println!("Press Enter to stop");
     std::io::stdin().read_line(&mut String::new()).unwrap();
     let meter = stream.eject().unwrap();
