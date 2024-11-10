@@ -6,22 +6,15 @@ use interflow::prelude::*;
 
 fn main() -> Result<()> {
     env_logger::init();
-    
+
     let device = default_output_device();
-    let config = StreamConfig {
-        samplerate: 48000.,
-        channels: 0b11,
-        buffer_size_range: (None, None),
-    };
-    assert!(device.is_config_supported(&config));
     println!("Using device {}", device.name());
-    let stream = device.create_output_stream(
-        config,
-        SineWave {
+    let stream = device
+        .default_output_stream(SineWave {
             frequency: 440.,
             phase: 0.,
-        },
-    ).unwrap();
+        })
+        .unwrap();
     println!("Press Enter to stop");
     std::io::stdin().read_line(&mut String::new())?;
     stream.eject().unwrap();
@@ -35,7 +28,10 @@ struct SineWave {
 
 impl AudioOutputCallback for SineWave {
     fn on_output_data(&mut self, context: AudioCallbackContext, mut output: AudioOutput<f32>) {
-        eprintln!("Callback called, timestamp: {:2.3} s", context.timestamp.as_seconds());
+        eprintln!(
+            "Callback called, timestamp: {:2.3} s",
+            context.timestamp.as_seconds()
+        );
         let sr = context.timestamp.samplerate as f32;
         for i in 0..output.buffer.num_samples() {
             output.buffer.set_mono(i, self.next_sample(sr));

@@ -1,26 +1,26 @@
 use core::panic;
 
 /// Trait for types which can represent bitsets.
-/// 
-/// A bit set is a type which encodes a boolean value, functioning similarly in principle to a 
+///
+/// A bit set is a type which encodes a boolean value, functioning similarly in principle to a
 /// `HashSet<usize>`.
 pub trait Bitset: Sized {
     /// Return the capacity of this bitset, that is, how many indices can be used with this type.
     fn capacity(&self) -> usize;
 
-    /// Get the value for a specific index. Implementations should panic when this value is out 
+    /// Get the value for a specific index. Implementations should panic when this value is out
     /// of range.
     fn get_index(&self, index: usize) -> bool;
 
-    /// Sets the value for a specific index. Implementations should panic when this value is out 
+    /// Sets the value for a specific index. Implementations should panic when this value is out
     /// of range.
     fn set_index(&mut self, index: usize, value: bool);
 
     /// Returns an iterator of indices for which the value has been set `true`.
-    fn indices(&self) -> impl IntoIterator<Item=usize> {
+    fn indices(&self) -> impl IntoIterator<Item = usize> {
         (0..self.capacity()).filter_map(|i| self.get_index(i).then_some(i))
     }
-    
+
     /// Count the number of `true` elements in this bit set.
     fn count(&self) -> usize {
         self.indices().into_iter().count()
@@ -31,9 +31,9 @@ pub trait Bitset: Sized {
         self.set_index(index, value);
         self
     }
-    
+
     /// Builder-like method for setting all provided indices to `.
-    fn with_indices(mut self, indices: impl IntoIterator<Item=usize>) -> Self {
+    fn with_indices(mut self, indices: impl IntoIterator<Item = usize>) -> Self {
         for ix in indices {
             self.set_index(ix, true);
         }
@@ -77,12 +77,12 @@ fn get_inner_bitset_at<T: Bitset>(arr: &[T], mut index: usize) -> Option<(usize,
     arr.iter().enumerate().find_map({
         move |(i, b)| {
             return match index.checked_sub(b.capacity()) {
-                None =>  Some((i, index)),
+                None => Some((i, index)),
                 Some(v) => {
                     index = v;
                     None
                 }
-            }
+            };
         }
     })
 }

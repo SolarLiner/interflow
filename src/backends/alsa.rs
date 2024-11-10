@@ -1,28 +1,28 @@
 //! # ALSA backend
-//! 
+//!
 //! ALSA is a generally available driver for Linux and BSD systems. It is the oldest of the Linux
 //! drivers supported in this library, and as such makes it a good fallback driver. Newer drivers
 //! (PulseAudio, PipeWire) offer ALSA-compatible APIs so that older software can still access the
 //! audio devices through them.
 
 use core::fmt;
-use std::{borrow::Cow, convert::Infallible, ffi::CStr};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
+use std::{borrow::Cow, ffi::CStr};
 
 use alsa::{device_name::HintIter, pcm, PCM};
 use thiserror::Error;
 
+use crate::audio_buffer::{AudioMut, AudioRef};
+use crate::channel_map::{Bitset, ChannelMap32};
+use crate::timestamp::Timestamp;
 use crate::{
     AudioCallbackContext, AudioDevice, AudioDriver, AudioInput, AudioInputCallback,
     AudioInputDevice, AudioOutput, AudioOutputCallback, AudioOutputDevice, AudioStreamHandle,
     Channel, DeviceType, StreamConfig,
 };
-use crate::audio_buffer::{AudioMut, AudioRef};
-use crate::channel_map::{Bitset, ChannelMap32};
-use crate::timestamp::Timestamp;
 
 /// Type of errors from using the ALSA backend.
 #[derive(Debug, Error)]
@@ -62,7 +62,7 @@ impl AudioDriver for AlsaDriver {
     }
 }
 
-/// Type of ALSA devices. 
+/// Type of ALSA devices.
 #[derive(Clone)]
 pub struct AlsaDevice {
     pcm: Arc<PCM>,
@@ -80,7 +80,7 @@ impl fmt::Debug for AlsaDevice {
 }
 
 impl AudioDevice for AlsaDevice {
-    type Error = Infallible;
+    type Error = AlsaError;
 
     fn name(&self) -> Cow<str> {
         Cow::Borrowed(self.name.as_str())
@@ -115,6 +115,10 @@ impl AudioDevice for AlsaDevice {
 impl AudioInputDevice for AlsaDevice {
     type StreamHandle<Callback: AudioInputCallback> = AlsaStream<Callback>;
 
+    fn default_input_config(&self) -> Result<StreamConfig, Self::Error> {
+        self.default_config()
+    }
+
     fn create_input_stream<Callback: 'static + Send + AudioInputCallback>(
         &self,
         stream_config: StreamConfig,
@@ -130,6 +134,10 @@ impl AudioInputDevice for AlsaDevice {
 
 impl AudioOutputDevice for AlsaDevice {
     type StreamHandle<Callback: AudioOutputCallback> = AlsaStream<Callback>;
+
+    fn default_output_config(&self) -> Result<StreamConfig, Self::Error> {
+        self.default_config()
+    }
 
     fn create_output_stream<Callback: 'static + Send + AudioOutputCallback>(
         &self,
@@ -198,12 +206,23 @@ impl AlsaDevice {
         self.pcm.sw_params(&swp)?;
         Ok((hwp, swp, io))
     }
+
+    fn default_config(&self) -> Result<StreamConfig, AlsaError> {
+        let samplerate = 48000.; // Default ALSA sample rate
+        let channel_count = 2; // Stereo stream
+        let channels = 1 << channel_count - 1;
+        Ok(StreamConfig {
+            samplerate: samplerate as _,
+            channels,
+            buffer_size_range: (None, None),
+        })
+    }
 }
 
 /// Type of ALSA streams.
-/// 
-/// The audio stream implementation relies on the synchronous API for now, as the [`alsa`] crate 
-/// does not seem to wrap the asynchronous API as of now. A separate I/O thread is spawned when 
+///
+/// The audio stream implementation relies on the synchronous API for now, as the [`alsa`] crate
+/// does not seem to wrap the asynchronous API as of now. A separate I/O thread is spawned when
 /// creating a stream, and is stopped when caling [`AudioInputDevice::eject`] /
 /// [`AudioOutputDevice::eject`].
 pub struct AlsaStream<Callback> {

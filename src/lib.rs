@@ -10,8 +10,8 @@ use crate::timestamp::Timestamp;
 pub mod audio_buffer;
 pub mod backends;
 pub mod channel_map;
-pub mod timestamp;
 pub mod prelude;
+pub mod timestamp;
 
 /// Audio drivers provide access to the inputs and outputs of physical devices.
 /// Several drivers might provide the same accesses, some sharing it with other applications,
@@ -56,9 +56,9 @@ pub struct StreamConfig {
     pub samplerate: f64,
     /// Map of channels requested by the stream. Entries correspond in order to
     /// [AudioDevice::channel_map].
-    /// 
+    ///
     /// Some drivers allow specifying which channels are going to be opened and available through
-    /// the audio buffers. For other drivers, only the number of requested channels is used, and 
+    /// the audio buffers. For other drivers, only the number of requested channels is used, and
     /// order does not matter.
     pub channels: ChannelMap32,
     /// Range of preferential buffer sizes. The library will make a bast-effort attempt at
@@ -106,7 +106,7 @@ pub trait AudioDevice {
 /// web targets.
 ///
 /// This should only be used to define the traits and should not be relied upon in external code.
-/// 
+///
 /// This definition is selected on non-web platforms, and does require [`Send`].
 #[cfg(not(wasm))]
 pub trait SendEverywhereButOnWeb: 'static + Send {}
@@ -125,53 +125,65 @@ pub trait SendEverywhereButOnWeb {}
 impl<T> SendEverywhereButOnWeb for T {}
 
 /// Trait for types which can provide input streams.
-/// 
-/// Input devices require a [`AudioInputCallback`] which receives the audio data from the input 
+///
+/// Input devices require a [`AudioInputCallback`] which receives the audio data from the input
 /// device, and processes it.
 pub trait AudioInputDevice: AudioDevice {
-    /// Type of the resulting stream. This stream can be used to control the audio processing 
-    /// externally, or stop it completely and give back ownership of the callback with 
+    /// Type of the resulting stream. This stream can be used to control the audio processing
+    /// externally, or stop it completely and give back ownership of the callback with
     /// [`AudioStreamHandle::eject`].
     type StreamHandle<Callback: AudioInputCallback>: AudioStreamHandle<Callback>;
+    fn default_input_config(&self) -> Result<StreamConfig, Self::Error>;
 
-    /// Creates an input stream with the provided stream configuration. For this call to be 
-    /// valid, [`AudioDevice::is_config_supported`] should have returned `true` on the provided 
+    /// Creates an input stream with the provided stream configuration. For this call to be
+    /// valid, [`AudioDevice::is_config_supported`] should have returned `true` on the provided
     /// configuration.
-    /// 
-    /// An input callback is required to process the audio, whose ownership will be transferred 
+    ///
+    /// An input callback is required to process the audio, whose ownership will be transferred
     /// to the audio stream.
-    fn create_input_stream<
-        Callback: SendEverywhereButOnWeb + AudioInputCallback,
-    >(
+    fn create_input_stream<Callback: SendEverywhereButOnWeb + AudioInputCallback>(
         &self,
         stream_config: StreamConfig,
         callback: Callback,
     ) -> Result<Self::StreamHandle<Callback>, Self::Error>;
+
+    fn default_input_stream<Callback: SendEverywhereButOnWeb + AudioInputCallback>(
+        &self,
+        callback: Callback,
+    ) -> Result<Self::StreamHandle<Callback>, Self::Error> {
+        self.create_input_stream(self.default_input_config()?, callback)
+    }
 }
 
 /// Trait for types which can provide output streams.
 ///
-/// Output devices require a [`AudioOutputCallback`] which receives the audio data from the output 
+/// Output devices require a [`AudioOutputCallback`] which receives the audio data from the output
 /// device, and processes it.
 pub trait AudioOutputDevice: AudioDevice {
-    /// Type of the resulting stream. This stream can be used to control the audio processing 
-    /// externally, or stop it completely and give back ownership of the callback with 
+    /// Type of the resulting stream. This stream can be used to control the audio processing
+    /// externally, or stop it completely and give back ownership of the callback with
     /// [`AudioStreamHandle::eject`].
     type StreamHandle<Callback: AudioOutputCallback>: AudioStreamHandle<Callback>;
+    fn default_output_config(&self) -> Result<StreamConfig, Self::Error>;
 
-    /// Creates an output stream with the provided stream configuration. For this call to be 
-    /// valid, [`AudioDevice::is_config_supported`] should have returned `true` on the provided 
+    /// Creates an output stream with the provided stream configuration. For this call to be
+    /// valid, [`AudioDevice::is_config_supported`] should have returned `true` on the provided
     /// configuration.
     ///
-    /// An output callback is required to process the audio, whose ownership will be transferred 
+    /// An output callback is required to process the audio, whose ownership will be transferred
     /// to the audio stream.
-    fn create_output_stream<
-        Callback: SendEverywhereButOnWeb + AudioOutputCallback,
-    >(
+    fn create_output_stream<Callback: SendEverywhereButOnWeb + AudioOutputCallback>(
         &self,
         stream_config: StreamConfig,
         callback: Callback,
     ) -> Result<Self::StreamHandle<Callback>, Self::Error>;
+
+    fn default_output_stream<Callback: SendEverywhereButOnWeb + AudioOutputCallback>(
+        &self,
+        callback: Callback,
+    ) -> Result<Self::StreamHandle<Callback>, Self::Error> {
+        self.create_output_stream(self.default_output_config()?, callback)
+    }
 }
 
 /// Trait for types which handles an audio stream (input or output).
@@ -180,8 +192,8 @@ pub trait AudioStreamHandle<Callback> {
     type Error: std::error::Error;
 
     /// Eject the stream, returning ownership of the callback.
-    /// 
-    /// An error can occur when an irrecoverable error has occured and ownership has been lost 
+    ///
+    /// An error can occur when an irrecoverable error has occured and ownership has been lost
     /// already.
     fn eject(self) -> Result<Callback, Self::Error>;
 }
@@ -191,20 +203,20 @@ pub trait AudioStreamHandle<Callback> {
     [AudioInput]    [AudioRef < 'a, T >];
     [AudioOutput]   [AudioMut < 'a, T >];
 )]
-/// Plain-old-data object holding references to the audio buffer and the associated time-keeping 
-/// [`Timestamp`]. This timestamp is associated with the stream, and in the cases where the 
+/// Plain-old-data object holding references to the audio buffer and the associated time-keeping
+/// [`Timestamp`]. This timestamp is associated with the stream, and in the cases where the
 /// driver provides timing information, it is used instead of relying on sample-counting.
 pub struct name<'a, T> {
-    /// Associated time stamp for this callback. The time represents the duration for which the 
-    /// stream has been opened, and is either provided by the driver if available, or is kept up 
+    /// Associated time stamp for this callback. The time represents the duration for which the
+    /// stream has been opened, and is either provided by the driver if available, or is kept up
     /// manually by the library.
     pub timestamp: Timestamp,
     /// Audio buffer data.
     pub buffer: bufty,
 }
 
-/// Plain-old-data object holding the passed-in stream configuration, as well as a general 
-/// callback timestamp, which can be different from the input and output streams in case of 
+/// Plain-old-data object holding the passed-in stream configuration, as well as a general
+/// callback timestamp, which can be different from the input and output streams in case of
 /// cross-stream latencies; differences in timing can indicate desync.
 pub struct AudioCallbackContext {
     /// Passed-in stream configuration. Values have been updated where necessary to correspond to
@@ -214,14 +226,14 @@ pub struct AudioCallbackContext {
     pub timestamp: Timestamp,
 }
 
-/// Trait of types which process input audio data. This is the trait that users will want to 
+/// Trait of types which process input audio data. This is the trait that users will want to
 /// implement when processing an input device.
 pub trait AudioInputCallback {
     /// Callback called when input data is available to be processed.
     fn on_input_data(&mut self, context: AudioCallbackContext, input: AudioInput<f32>);
 }
 
-/// Trait of types which process output audio data. This is the trait that users will want to 
+/// Trait of types which process output audio data. This is the trait that users will want to
 /// implement when processing an output device.
 pub trait AudioOutputCallback {
     /// Callback called when output data is available to be processed.

@@ -4,11 +4,13 @@
 //!
 //! Each backend is provided in its own submodule. Types should be public so that the user isn't
 //! limited to going through the main API if they want to choose a specific backend.
-
 use crate::{AudioDriver, AudioInputDevice, AudioOutputDevice, DeviceType};
 
 #[cfg(os_alsa)]
 pub mod alsa;
+
+#[cfg(os_coreaudio)]
+pub mod coreaudio;
 
 /// Returns the default driver.
 ///
@@ -19,13 +21,15 @@ pub mod alsa;
 /// denominator.
 ///
 /// Selects the following driver depending on platform:
-/// 
+///
 /// | **Platform** | **Driver** |
 /// |:------------:|:----------:|
 /// |     Linux    |    ALSA    |
 pub fn default_driver() -> impl AudioDriver {
     #[cfg(os_alsa)]
-    alsa::AlsaDriver
+    return alsa::AlsaDriver;
+    #[cfg(os_coreaudio)]
+    return coreaudio::CoreAudioDriver;
 }
 
 /// Returns the default input device for the given audio driver.
@@ -38,21 +42,20 @@ where
     driver
         .default_device(DeviceType::Input)
         .expect("Audio driver error")
-        .expect(
-            "No \
-    default device found",
-        )
+        .expect("No default device found")
         .clone()
 }
 
 /// Default input device from the default driver for this platform.
-/// 
+///
 /// "Default" here means both in terms of platform support but also can include runtime selection.
-/// Therefore, it is better to use this method directly rather than first getting the default 
+/// Therefore, it is better to use this method directly rather than first getting the default
 /// driver from [`default_driver`].
 pub fn default_input_device() -> impl AudioInputDevice {
     #[cfg(os_alsa)]
-    default_input_device_from(&alsa::AlsaDriver)
+    return default_input_device_from(&alsa::AlsaDriver);
+    #[cfg(os_coreaudio)]
+    return default_input_device_from(&coreaudio::CoreAudioDriver);
 }
 
 /// Returns the default input device for the given audio driver.
@@ -69,13 +72,14 @@ where
         .clone()
 }
 
-
 /// Default output device from the default driver for this platform.
 ///
 /// "Default" here means both in terms of platform support but also can include runtime selection.
-/// Therefore, it is better to use this method directly rather than first getting the default 
+/// Therefore, it is better to use this method directly rather than first getting the default
 /// driver from [`default_driver`].
 pub fn default_output_device() -> impl AudioOutputDevice {
     #[cfg(os_alsa)]
-    default_output_device_from(&alsa::AlsaDriver)
+    return default_output_device_from(&alsa::AlsaDriver);
+    #[cfg(os_coreaudio)]
+    return default_output_device_from(&coreaudio::CoreAudioDriver);
 }

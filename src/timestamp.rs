@@ -4,9 +4,9 @@ use std::time::Duration;
 
 /// Timestamp value, which computes duration information from a provided samplerate and a running
 /// sample counter.
-/// 
+///
 /// You can update the timestamp by add-assigning sample counts to it:
-/// 
+///
 /// ```rust
 /// use std::time::Duration;
 /// use interflow::timestamp::Timestamp;
@@ -15,7 +15,7 @@ use std::time::Duration;
 /// ts += 48;
 /// assert_eq!(ts.as_duration(), Duration::from_millis(1));
 /// ```
-/// 
+///
 /// Adding also works, returning a new timestamp:
 ///
 /// ```rust
@@ -27,9 +27,9 @@ use std::time::Duration;
 /// assert_eq!(ts.as_duration(), Duration::from_millis(0));
 /// assert_eq!(ts2.as_duration(), Duration::from_millis(1));
 /// ```
-/// 
+///
 /// Similarly, you can compute sample offsets by adding a [`Duration`] to it:
-/// 
+///
 /// ```rust
 /// use std::time::Duration;
 /// use interflow::timestamp::Timestamp;
@@ -38,14 +38,14 @@ use std::time::Duration;
 /// assert_eq!(ts_off.as_duration(), Duration::from_millis(101));
 /// assert_eq!(ts_off.counter, 4848);
 /// ```
-/// 
+///
 /// Or simply construct a [`Timestamp`] from a specified duration:
-/// 
+///
 /// ```rust
 /// use std::time::Duration;
 /// use interflow::timestamp::Timestamp;
 /// let ts = Timestamp::from_duration(44100., Duration::from_millis(1));
-/// assert_eq!(ts.counter, 44); // Note that the conversion is lossy, as only whole samples are 
+/// assert_eq!(ts.counter, 44); // Note that the conversion is lossy, as only whole samples are
 ///                             // stored in the timestamp.
 /// ```
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -98,13 +98,13 @@ impl Timestamp {
         }
     }
 
-    /// Compute the sample offset that most closely matches the provided duration for the given 
+    /// Compute the sample offset that most closely matches the provided duration for the given
     /// sample rate.
     pub fn from_duration(samplerate: f64, duration: Duration) -> Self {
         Self::from_seconds(samplerate, duration.as_secs_f64())
     }
 
-    /// Compute the sample offset that most closely matches the provided duration in seconds for 
+    /// Compute the sample offset that most closely matches the provided duration in seconds for
     /// the given sample rate.
     pub fn from_seconds(samplerate: f64, seconds: f64) -> Self {
         let samples = samplerate * seconds;
