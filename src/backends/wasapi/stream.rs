@@ -135,6 +135,11 @@ impl<Callback, Interface> AudioThread<Callback, Interface> {
         if !self.event_handle.is_invalid() {
             unsafe { CloseHandle(self.event_handle) }?;
         }
+        let _ = unsafe {
+            self.audio_client
+                .Stop()
+                .inspect_err(|err| eprintln!("Cannot stop audio thread: {err}"))
+        };
         Ok(self.callback)
     }
 }
