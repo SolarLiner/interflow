@@ -37,6 +37,7 @@ pub mod wasapi;
 /// |     Linux    |    ALSA    |
 /// |     macOS    | CoreAudio  |
 /// |    Windows   |   WASAPI   |
+#[cfg(any(os_alsa, os_coreaudio, os_wasapi))]
 #[allow(clippy::needless_return)]
 pub fn default_driver() -> impl AudioDriver {
     #[cfg(os_alsa)]
@@ -66,13 +67,15 @@ where
 /// "Default" here means both in terms of platform support but also can include runtime selection.
 /// Therefore, it is better to use this method directly rather than first getting the default
 /// driver from [`default_driver`].
-#[cfg(any(os_alsa, os_coreaudio))]
+#[cfg(any(os_alsa, os_coreaudio, os_wasapi))]
 #[allow(clippy::needless_return)]
 pub fn default_input_device() -> impl AudioInputDevice {
     #[cfg(os_alsa)]
     return default_input_device_from(&alsa::AlsaDriver);
     #[cfg(os_coreaudio)]
     return default_input_device_from(&coreaudio::CoreAudioDriver);
+    #[cfg(os_wasapi)]
+    return default_input_device_from(&wasapi::WasapiDriver);
 }
 
 /// Returns the default input device for the given audio driver.

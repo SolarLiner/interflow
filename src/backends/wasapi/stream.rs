@@ -2,10 +2,12 @@ use super::error;
 use crate::audio_buffer::AudioMut;
 use crate::backends::wasapi::util::WasapiMMDevice;
 use crate::channel_map::Bitset;
-use crate::prelude::Timestamp;
+use crate::prelude::{AudioRef, Timestamp};
 use crate::{
-    AudioCallbackContext, AudioOutput, AudioOutputCallback, AudioStreamHandle, StreamConfig,
+    AudioCallbackContext, AudioInput, AudioInputCallback, AudioOutput, AudioOutputCallback,
+    AudioStreamHandle, StreamConfig,
 };
+use duplicate::duplicate_item;
 use std::marker::PhantomData;
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -14,6 +16,7 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 use std::{ops, ptr, slice};
 use windows::core::imp::CoTaskMemFree;
+use windows::core::Interface;
 use windows::Win32::Foundation;
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::Media::{Audio, KernelStreaming, Multimedia};
@@ -21,15 +24,25 @@ use windows::Win32::System::Threading;
 
 type EjectSignal = Arc<AtomicBool>;
 
-struct AudioBuffer<'a, T> {
-    render_client: &'a Audio::IAudioRenderClient,
+#[duplicate_item(
+name                 ty;
+[AudioCaptureBuffer] [IAudioCaptureClient];
+[AudioRenderBuffer]  [IAudioRenderClient];
+)]
+struct name<'a, T> {
+    interface: &'a Audio::ty,
     data: NonNull<u8>,
     frame_size: usize,
     channels: usize,
     __type: PhantomData<T>,
 }
 
-impl<'a, T> ops::Deref for AudioBuffer<'a, T> {
+#[duplicate_item(
+name;
+[AudioCaptureBuffer];
+[AudioRenderBuffer];
+)]
+impl<'a, T> ops::Deref for name<'a, T> {
     type Target = [T];
 
     fn deref(&self) -> &Self::Target {
@@ -37,25 +50,37 @@ impl<'a, T> ops::Deref for AudioBuffer<'a, T> {
     }
 }
 
-impl<'a, T> ops::DerefMut for AudioBuffer<'a, T> {
+#[duplicate_item(
+name;
+[AudioCaptureBuffer];
+[AudioRenderBuffer];
+)]
+impl<'a, T> ops::DerefMut for name<'a, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe {
             slice::from_raw_parts_mut(self.data.cast().as_ptr(), self.channels * self.frame_size)
         }
     }
 }
-impl<T> Drop for AudioBuffer<'_, T> {
+
+impl<T> Drop for AudioCaptureBuffer<'_, T> {
     fn drop(&mut self) {
-        unsafe {
-            self.render_client
-                .ReleaseBuffer(self.frame_size as _, 0)
-                .unwrap()
-        };
+        unsafe { self.interface.ReleaseBuffer(self.frame_size as _).unwrap() };
     }
 }
 
-impl<'a, T> AudioBuffer<'a, T> {
-    fn from_render_client(
+impl<T> Drop for AudioRenderBuffer<'_, T> {
+    fn drop(&mut self) {
+        unsafe {
+            self.interface
+                .ReleaseBuffer(self.frame_size as _, 0)
+                .unwrap();
+        }
+    }
+}
+
+impl<'a, T> AudioRenderBuffer<'a, T> {
+    fn from_client(
         render_client: &'a Audio::IAudioRenderClient,
         channels: usize,
         frame_size: usize,
@@ -63,7 +88,7 @@ impl<'a, T> AudioBuffer<'a, T> {
         let data = NonNull::new(unsafe { render_client.GetBuffer(frame_size as _) }?)
             .expect("Audio buffer data is null");
         Ok(Self {
-            render_client,
+            interface: render_client,
             data,
             frame_size,
             channels,
@@ -71,10 +96,31 @@ impl<'a, T> AudioBuffer<'a, T> {
         })
     }
 }
+impl<'a, T> AudioCaptureBuffer<'a, T> {
+    fn from_client(
+        capture_client: &'a Audio::IAudioCaptureClient,
+        channels: usize,
+    ) -> Result<Option<Self>, error::WasapiError> {
+        let mut buf_ptr = ptr::null_mut();
+        let mut frame_size = 0;
+        let mut flags = 0;
+        unsafe {
+            capture_client.GetBuffer(&mut buf_ptr, &mut frame_size, &mut flags, None, None)
+        }?;
+        let Some(data) = NonNull::new(buf_ptr as _) else { return Ok(None); };
+        Ok(Some(Self {
+            interface: capture_client,
+            data,
+            frame_size: frame_size as _,
+            channels,
+            __type: PhantomData,
+        }))
+    }
+}
 
-struct RenderThread<Callback> {
+struct AudioThread<Callback, Interface> {
     audio_client: Audio::IAudioClient,
-    render_client: Audio::IAudioRenderClient,
+    interface: Interface,
     audio_clock: Audio::IAudioClock,
     stream_config: StreamConfig,
     eject_signal: EjectSignal,
@@ -84,7 +130,16 @@ struct RenderThread<Callback> {
     clock_start: Duration,
 }
 
-impl<Callback> RenderThread<Callback> {
+impl<Callback, Interface> AudioThread<Callback, Interface> {
+    fn finalize(self) -> Result<Callback, error::WasapiError> {
+        if !self.event_handle.is_invalid() {
+            unsafe { CloseHandle(self.event_handle) }?;
+        }
+        Ok(self.callback)
+    }
+}
+
+impl<Callback, Iface: Interface> AudioThread<Callback, Iface> {
     fn new(
         device: WasapiMMDevice,
         eject_signal: EjectSignal,
@@ -143,12 +198,12 @@ impl<Callback> RenderThread<Callback> {
                 audio_client.SetEventHandle(event_handle)?;
                 event_handle
             };
-            let render_client = audio_client.GetService::<Audio::IAudioRenderClient>()?;
+            let interface = audio_client.GetService::<Iface>()?;
             let audio_clock = audio_client.GetService::<Audio::IAudioClock>()?;
             let frame_size = buffer_size;
             Ok(Self {
                 audio_client,
-                render_client,
+                interface,
                 audio_clock,
                 event_handle,
                 frame_size,
@@ -161,63 +216,6 @@ impl<Callback> RenderThread<Callback> {
                 callback,
             })
         }
-    }
-
-    fn finalize(self) -> Result<Callback, error::WasapiError> {
-        if !self.event_handle.is_invalid() {
-            unsafe { CloseHandle(self.event_handle) }?;
-        }
-        Ok(self.callback)
-    }
-}
-
-impl<Callback: AudioOutputCallback> RenderThread<Callback> {
-    fn run(mut self) -> Result<Callback, error::WasapiError> {
-        set_thread_priority();
-        unsafe {
-            self.audio_client.Start()?;
-        }
-        self.clock_start = stream_instant(&self.audio_clock)?;
-        loop {
-            if self.eject_signal.load(Ordering::Relaxed) {
-                break self.finalize();
-            }
-            self.await_frame()?;
-            self.process()?;
-        }
-        .inspect_err(|err| eprintln!("Render thread process error: {err}"))
-    }
-
-    fn process(&mut self) -> Result<(), error::WasapiError> {
-        let frames_available = unsafe {
-            let padding = self.audio_client.GetCurrentPadding()? as usize;
-            self.frame_size - padding
-        };
-        if frames_available == 0 {
-            eprintln!("WASAPI WTF: 0 output callback requested");
-            return Ok(());
-        }
-        let frames_requested = if let Some(max_frames) = self.stream_config.buffer_size_range.1 {
-            frames_available.min(max_frames)
-        } else {
-            frames_available
-        };
-        let mut buffer = AudioBuffer::<f32>::from_render_client(
-            &self.render_client,
-            self.stream_config.channels.count(),
-            frames_requested,
-        )?;
-        let timestamp = self.output_timestamp()?;
-        let context = AudioCallbackContext {
-            stream_config: self.stream_config,
-            timestamp,
-        };
-        let buffer =
-            AudioMut::from_interleaved_mut(&mut buffer, self.stream_config.channels.count())
-                .unwrap();
-        let output = AudioOutput { timestamp, buffer };
-        self.callback.on_output_data(context, output);
-        Ok(())
     }
 
     fn await_frame(&mut self) -> Result<(), error::WasapiError> {
@@ -243,6 +241,99 @@ impl<Callback: AudioOutputCallback> RenderThread<Callback> {
     }
 }
 
+impl<Callback: AudioInputCallback> AudioThread<Callback, Audio::IAudioCaptureClient> {
+    fn run(mut self) -> Result<Callback, error::WasapiError> {
+        set_thread_priority();
+        unsafe {
+            self.audio_client.Start()?;
+        }
+        self.clock_start = stream_instant(&self.audio_clock)?;
+        loop {
+            if self.eject_signal.load(Ordering::Relaxed) {
+                break self.finalize();
+            }
+            self.await_frame()?;
+            self.process()?;
+        }
+        .inspect_err(|err| eprintln!("Render thread process error: {err}"))
+    }
+
+    fn process(&mut self) -> Result<(), error::WasapiError> {
+        let frames_available = unsafe {
+            self.interface.GetNextPacketSize()? as usize
+        };
+        if frames_available == 0 {
+            return Ok(());
+        }
+        let Some(mut buffer) = AudioCaptureBuffer::<f32>::from_client(
+            &self.interface,
+            self.stream_config.channels.count(),
+        )? else {
+            eprintln!("Null buffer from WASAPI");
+            return Ok(());
+        };
+        let timestamp = self.output_timestamp()?;
+        let context = AudioCallbackContext {
+            stream_config: self.stream_config,
+            timestamp,
+        };
+        let buffer =
+            AudioRef::from_interleaved(&mut buffer, self.stream_config.channels.count()).unwrap();
+        let output = AudioInput { timestamp, buffer };
+        self.callback.on_input_data(context, output);
+        Ok(())
+    }
+}
+
+impl<Callback: AudioOutputCallback> AudioThread<Callback, Audio::IAudioRenderClient> {
+    fn run(mut self) -> Result<Callback, error::WasapiError> {
+        set_thread_priority();
+        unsafe {
+            self.audio_client.Start()?;
+        }
+        self.clock_start = stream_instant(&self.audio_clock)?;
+        loop {
+            if self.eject_signal.load(Ordering::Relaxed) {
+                break self.finalize();
+            }
+            self.await_frame()?;
+            self.process()?;
+        }
+        .inspect_err(|err| eprintln!("Render thread process error: {err}"))
+    }
+
+    fn process(&mut self) -> Result<(), error::WasapiError> {
+        let frames_available = unsafe {
+            let padding = self.audio_client.GetCurrentPadding()? as usize;
+            self.frame_size - padding
+        };
+        if frames_available == 0 {
+            return Ok(());
+        }
+        let frames_requested = if let Some(max_frames) = self.stream_config.buffer_size_range.1 {
+            frames_available.min(max_frames)
+        } else {
+            frames_available
+        };
+        let mut buffer = AudioRenderBuffer::<f32>::from_client(
+            &self.interface,
+            self.stream_config.channels.count(),
+            frames_requested,
+        )?;
+        let timestamp = self.output_timestamp()?;
+        let context = AudioCallbackContext {
+            stream_config: self.stream_config,
+            timestamp,
+        };
+        let buffer =
+            AudioMut::from_interleaved_mut(&mut buffer, self.stream_config.channels.count())
+                .unwrap();
+        let output = AudioOutput { timestamp, buffer };
+        self.callback.on_output_data(context, output);
+        Ok(())
+    }
+}
+
 /// Type representing a WASAPI audio stream.
 pub struct WasapiStream<Callback> {
     join_handle: JoinHandle<Result<Callback, error::WasapiError>>,
@@ -260,6 +351,34 @@ impl<Callback> AudioStreamHandle<Callback> for WasapiStream<Callback> {
     }
 }
 
+impl<Callback: 'static + Send + AudioInputCallback> WasapiStream<Callback> {
+    pub(crate) fn new_input(
+        device: WasapiMMDevice,
+        stream_config: StreamConfig,
+        callback: Callback,
+    ) -> Self {
+        let eject_signal = EjectSignal::default();
+        let join_handle = std::thread::Builder::new()
+            .name("interflow_wasapi_output_stream".to_string())
+            .spawn({
+                let eject_signal = eject_signal.clone();
+                move || {
+                    let inner: AudioThread<Callback, Audio::IAudioCaptureClient> =
+                        AudioThread::new(device, eject_signal, stream_config, callback)
+                            .inspect_err(|err| {
+                                eprintln!("Failed to create render thread: {err}")
+                            })?;
+                    inner.run()
+                }
+            })
+            .expect("Cannot spawn audio output thread");
+        Self {
+            join_handle,
+            eject_signal,
+        }
+    }
+}
+
 impl<Callback: 'static + Send + AudioOutputCallback> WasapiStream<Callback> {
     pub(crate) fn new_output(
         device: WasapiMMDevice,
@@ -272,8 +391,11 @@ impl<Callback: 'static + Send + AudioOutputCallback> WasapiStream<Callback> {
             .spawn({
                 let eject_signal = eject_signal.clone();
                 move || {
-                    let inner = RenderThread::new(device, eject_signal, stream_config, callback)
-                        .inspect_err(|err| eprintln!("Failed to create render thread: {err}"))?;
+                    let inner: AudioThread<Callback, Audio::IAudioRenderClient> =
+                        AudioThread::new(device, eject_signal, stream_config, callback)
+                            .inspect_err(|err| {
+                                eprintln!("Failed to create render thread: {err}")
+                            })?;
                     inner.run()
                 }
             })
@@ -353,7 +475,10 @@ pub(crate) fn config_to_waveformatextensible(config: &StreamConfig) -> Audio::WA
     waveformatextensible
 }
 
-pub(crate) fn is_output_config_supported(device: WasapiMMDevice, stream_config: &StreamConfig) -> bool {
+pub(crate) fn is_output_config_supported(
+    device: WasapiMMDevice,
+    stream_config: &StreamConfig,
+) -> bool {
     let mut try_ = || unsafe {
         let audio_client: Audio::IAudioClient = device.activate()?;
         let sharemode = if stream_config.exclusive {
