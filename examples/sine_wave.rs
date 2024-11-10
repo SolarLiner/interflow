@@ -5,22 +5,15 @@ use anyhow::Result;
 use interflow::prelude::*;
 
 fn main() -> Result<()> {
+    env_logger::init();
+
     let device = default_output_device();
-    let config = StreamConfig {
-        samplerate: 48000.,
-        channels: 0b11,
-        buffer_size_range: (None, None),
-    };
-    assert!(device.is_config_supported(&config));
     println!("Using device {}", device.name());
     let stream = device
-        .create_output_stream(
-            config,
-            SineWave {
-                frequency: 440.,
-                phase: 0.,
-            },
-        )
+        .default_output_stream(SineWave {
+            frequency: 440.,
+            phase: 0.,
+        })
         .unwrap();
     println!("Press Enter to stop");
     std::io::stdin().read_line(&mut String::new())?;

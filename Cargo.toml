@@ -7,11 +7,14 @@ license = "MIT"
 
 [dependencies]
 duplicate = "1.0.0"
+log = "0.4.22"
 ndarray = "0.15.6"
+oneshot = "0.1.8"
 thiserror = "1.0.63"
 
 [dev-dependencies]
 anyhow = "1.0.86"
+env_logger = "0.11.5"
 indicatif = "0.17.8"
 
 [build-dependencies]
@@ -19,6 +22,9 @@ cfg_aliases = "0.2.1"
 
 [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd"))'.dependencies]
 alsa = "0.9.0"
+
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+coreaudio-rs = "0.12.0"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.58.0", features = [

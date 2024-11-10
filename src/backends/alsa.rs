@@ -1,9 +1,16 @@
+//! # ALSA backend
+//!
+//! ALSA is a generally available driver for Linux and BSD systems. It is the oldest of the Linux
+//! drivers supported in this library, and as such makes it a good fallback driver. Newer drivers
+//! (PulseAudio, PipeWire) offer ALSA-compatible APIs so that older software can still access the
+//! audio devices through them.
+
 use core::fmt;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
-use std::{borrow::Cow, convert::Infallible, ffi::CStr};
+use std::{borrow::Cow, ffi::CStr};
 
 use alsa::{device_name::HintIter, pcm, PCM};
 use thiserror::Error;
@@ -17,13 +24,17 @@ use crate::{
     Channel, DeviceType, StreamConfig,
 };
 
+/// Type of errors from using the ALSA backend.
 #[derive(Debug, Error)]
 #[error("ALSA error: ")]
 pub enum AlsaError {
+    /// Error originates from ALSA itself.
     #[error("{0}")]
     BackendError(#[from] alsa::Error),
 }
 
+/// ALSA driver type. ALSA is statically available without client configuration, therefore this type
+/// is zero-sized.
 #[derive(Debug, Clone, Default)]
 pub struct AlsaDriver;
 
@@ -51,6 +62,7 @@ impl AudioDriver for AlsaDriver {
     }
 }
 
+/// Type of ALSA devices.
 #[derive(Clone)]
 pub struct AlsaDevice {
     pcm: Arc<PCM>,
@@ -68,7 +80,7 @@ impl fmt::Debug for AlsaDevice {
 }
 
 impl AudioDevice for AlsaDevice {
-    type Error = Infallible;
+    type Error = AlsaError;
 
     fn name(&self) -> Cow<str> {
         Cow::Borrowed(self.name.as_str())
@@ -86,16 +98,26 @@ impl AudioDevice for AlsaDevice {
     }
 
     fn is_config_supported(&self, config: &StreamConfig) -> bool {
-        self.get_hwp(config).is_ok()
+        self.get_hwp(config)
+            .inspect_err(|err| {
+                log::debug!("{config:#?}");
+                log::debug!("Configuration unsupported: {err}");
+            })
+            .is_ok()
     }
 
     fn enumerate_configurations(&self) -> Option<impl IntoIterator<Item = StreamConfig>> {
+        log::info!("TODO: enumerate configurations");
         None::<[StreamConfig; 0]>
     }
 }
 
 impl AudioInputDevice for AlsaDevice {
     type StreamHandle<Callback: AudioInputCallback> = AlsaStream<Callback>;
+
+    fn default_input_config(&self) -> Result<StreamConfig, Self::Error> {
+        self.default_config()
+    }
 
     fn create_input_stream<Callback: 'static + Send + AudioInputCallback>(
         &self,
@@ -112,6 +134,10 @@ impl AudioInputDevice for AlsaDevice {
 
 impl AudioOutputDevice for AlsaDevice {
     type StreamHandle<Callback: AudioOutputCallback> = AlsaStream<Callback>;
+
+    fn default_output_config(&self) -> Result<StreamConfig, Self::Error> {
+        self.default_config()
+    }
 
     fn create_output_stream<Callback: 'static + Send + AudioOutputCallback>(
         &self,
@@ -171,14 +197,34 @@ impl AlsaDevice {
         let hwp = self.pcm.hw_params_current()?;
         let swp = self.pcm.sw_params_current()?;
 
+        log::debug!("Apply config: hwp {hwp:#?}");
+        log::debug!("Apply config: swp {swp:#?}");
+
         // TODO: Forward buffer size hints
 
         swp.set_start_threshold(hwp.get_buffer_size()?)?;
         self.pcm.sw_params(&swp)?;
         Ok((hwp, swp, io))
     }
+
+    fn default_config(&self) -> Result<StreamConfig, AlsaError> {
+        let samplerate = 48000.; // Default ALSA sample rate
+        let channel_count = 2; // Stereo stream
+        let channels = 1 << channel_count - 1;
+        Ok(StreamConfig {
+            samplerate: samplerate as _,
+            channels,
+            buffer_size_range: (None, None),
+        })
+    }
 }
 
+/// Type of ALSA streams.
+///
+/// The audio stream implementation relies on the synchronous API for now, as the [`alsa`] crate
+/// does not seem to wrap the asynchronous API as of now. A separate I/O thread is spawned when
+/// creating a stream, and is stopped when caling [`AudioInputDevice::eject`] /
+/// [`AudioOutputDevice::eject`].
 pub struct AlsaStream<Callback> {
     eject_signal: Arc<AtomicBool>,
     join_handle: JoinHandle<Result<Callback, AlsaError>>,
@@ -203,9 +249,11 @@ impl<Callback: 'static + Send + AudioInputCallback> AlsaStream<Callback> {
                 let (hwp, _, io) = device.apply_config(&stream_config)?;
                 let (_, period_size) = device.pcm.get_params()?;
                 let period_size = period_size as usize;
-                eprintln!("Period size: {period_size}");
+                log::info!("Period size : {period_size}");
                 let num_channels = hwp.get_channels()? as usize;
+                log::info!("Num channels: {num_channels}");
                 let samplerate = hwp.get_rate()? as f64;
+                log::info!("Sample rate : {samplerate}");
                 let stream_config = StreamConfig {
                     samplerate,
                     channels: ChannelMap32::default()
@@ -216,16 +264,22 @@ impl<Callback: 'static + Send + AudioInputCallback> AlsaStream<Callback> {
                 let mut buffer = vec![0f32; period_size * num_channels];
                 device.pcm.prepare()?;
                 if device.pcm.state() != pcm::State::Running {
+                    log::info!("Device not already started, starting now");
                     device.pcm.start()?;
                 }
                 let _try = || loop {
                     if eject_signal.load(Ordering::Relaxed) {
+                        log::debug!("Eject requested, returning ownership of callback");
                         break Ok(callback);
                     }
                     let frames = device.pcm.avail_update()? as usize;
                     let len = frames * num_channels;
                     match io.readi(&mut buffer[..len]) {
-                        Err(err) => device.pcm.try_recover(err, true)?,
+                        Err(err) => {
+                            log::warn!("ALSA PCM error, trying to recover ...");
+                            log::debug!("Error: {err}");
+                            device.pcm.try_recover(err, true)?;
+                        }
                         _ => {}
                     }
                     let buffer = AudioRef::from_interleaved(&buffer[..len], num_channels).unwrap();
@@ -269,8 +323,11 @@ impl<Callback: 'static + Send + AudioOutputCallback> AlsaStream<Callback> {
                 let (hwp, _, io) = device.apply_config(&stream_config)?;
                 let (_, period_size) = device.pcm.get_params()?;
                 let period_size = period_size as usize;
+                log::debug!("Period size : {period_size}");
                 let num_channels = hwp.get_channels()? as usize;
+                log::debug!("Num channels: {num_channels}");
                 let samplerate = hwp.get_rate()? as f64;
+                log::debug!("Sample rate : {samplerate}");
                 let stream_config = StreamConfig {
                     samplerate,
                     channels: ChannelMap32::default()
@@ -308,8 +365,12 @@ impl<Callback: 'static + Send + AudioOutputCallback> AlsaStream<Callback> {
                     match device.pcm.state() {
                         pcm::State::Suspended => {
                             if hwp.can_resume() {
+                                log::debug!("Stream suspended, resuming");
                                 device.pcm.resume()?;
                             } else {
+                                log::debug!(
+                                    "Stream suspended but cannot resume, re-prepare instead"
+                                );
                                 device.pcm.prepare()?;
                             }
                         }
@@ -317,7 +378,7 @@ impl<Callback: 'static + Send + AudioOutputCallback> AlsaStream<Callback> {
                         _ => {}
                     }
                 };
-                _try().inspect_err(|err| eprintln!("Audio thread error: {err}"))
+                _try().inspect_err(|err| log::error!("Audio thread error: {err}"))
             }
         });
         Self {

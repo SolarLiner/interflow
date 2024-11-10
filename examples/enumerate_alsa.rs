@@ -4,6 +4,9 @@ mod util;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     use crate::util::enumerate::enumerate_devices;
     use interflow::backends::alsa::AlsaDriver;
+
+    env_logger::init();
+
     enumerate_devices(AlsaDriver::default())
 }
 
