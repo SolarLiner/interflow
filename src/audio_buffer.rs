@@ -173,7 +173,7 @@ impl<S: Data> AudioBufferBase<S> {
         for (inp, out) in self.as_interleaved().iter().zip(output.iter_mut()) {
             *out = *inp;
         }
-        return true;
+        true
     }
 }
 
@@ -461,7 +461,8 @@ impl<'a, S: DataMut<Elem: Sample>> AudioBufferBase<S> {
 
     /// Mix a buffer into this buffer at the specified amplitude. The audio will be mixed into
     /// this buffer as a result, and the other buffer's amplitude will be changed similarly to
-    /// applying [`Self::change_amplitude`] first.pub fn mix(&mut self, other: AudioRef<S::Elem>, other_amplitude: <S::Elem as Sample>::Float)
+    /// applying [`Self::change_amplitude`] first.
+    pub fn mix(&mut self, other: AudioRef<S::Elem>, other_amplitude: <S::Elem as Sample>::Float)
     where
         S::Elem: AddAssign<S::Elem>,
     {

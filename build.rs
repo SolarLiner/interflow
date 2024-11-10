@@ -8,5 +8,6 @@ fn main() {
             target_os = "netbsd") },
         os_coreaudio: { any (target_os = "macos", target_os = "ios") },
         os_wasapi: { target_os = "windows" },
+        unsupported: { not(any(wasm, os_alsa, os_coreaudio, os_wasapi))}
     }
 }
