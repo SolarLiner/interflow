@@ -160,12 +160,18 @@ impl AudioDevice for CoreAudioDevice {
                 .iter()
                 .copied()
                 .filter(move |sr| samplerate_range.contains(sr))
-                .map(move |sr| {
+                .flat_map(move |sr| {
+                    [false, true]
+                        .into_iter()
+                        .map(move |exclusive| (sr, exclusive))
+                })
+                .map(move |(samplerate, exclusive)| {
                     let channels = 1 << asbd.mFormat.mChannelsPerFrame as u32 - 1;
                     StreamConfig {
-                        samplerate: sr,
+                        samplerate,
                         channels,
                         buffer_size_range: (None, None),
+                        exclusive,
                     }
                 })
         }))
@@ -195,6 +201,7 @@ impl AudioInputDevice for CoreAudioDevice {
             channels: 0b1, // Hardcoded to mono on non-interleaved inputs
             samplerate,
             buffer_size_range: (None, None),
+            exclusive: false,
         })
     }
 
@@ -226,6 +233,7 @@ impl AudioOutputDevice for CoreAudioDevice {
             samplerate,
             buffer_size_range: (None, None),
             channels: 0b11,
+            exclusive: false,
         })
     }
 

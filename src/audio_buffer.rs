@@ -173,7 +173,7 @@ impl<S: Data> AudioBufferBase<S> {
         for (inp, out) in self.as_interleaved().iter().zip(output.iter_mut()) {
             *out = *inp;
         }
-        return true;
+        true
     }
 }
 
@@ -212,8 +212,7 @@ impl<S: DataMut> AudioBufferBase<S> {
     pub fn channels_mut(&mut self) -> impl '_ + Iterator<Item = ArrayViewMut1<S::Elem>> {
         self.storage.rows_mut().into_iter()
     }
-
-    /// Return a mutable interleaved 2-D array view, where samples are in rows and channels are in
+/// Return a mutable interleaved 2-D array view, where samples are in rows and channels are in
     /// columns.
     pub fn as_interleaved_mut(&mut self) -> ArrayViewMut2<S::Elem> {
         self.storage.view_mut().reversed_axes()

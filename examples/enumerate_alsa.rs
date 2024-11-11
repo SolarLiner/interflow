@@ -1,9 +1,7 @@
-use std::error::Error;
-
 mod util;
 
 #[cfg(os_alsa)]
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     use crate::util::enumerate::enumerate_devices;
     use interflow::backends::alsa::AlsaDriver;
 

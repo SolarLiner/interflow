@@ -65,6 +65,9 @@ pub struct StreamConfig {
     /// honoring this setting, and in future versions may provide additional buffering to ensure
     /// it, but for now you should not make assumptions on buffer sizes based on this setting.
     pub buffer_size_range: (Option<usize>, Option<usize>),
+    /// Whether the device should be exclusively held (meaning no other application can open the
+    /// same device).
+    pub exclusive: bool,
 }
 
 /// Audio channel description.
