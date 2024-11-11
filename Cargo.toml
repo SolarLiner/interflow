@@ -11,6 +11,7 @@ log = "0.4.22"
 ndarray = "0.15.6"
 oneshot = "0.1.8"
 thiserror = "1.0.63"
+rtrb = "0.3.1"
 
 [dev-dependencies]
 anyhow = "1.0.86"

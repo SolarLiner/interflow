@@ -264,16 +264,15 @@ impl<Callback: AudioInputCallback> AudioThread<Callback, Audio::IAudioCaptureCli
     }
 
     fn process(&mut self) -> Result<(), error::WasapiError> {
-        let frames_available = unsafe {
-            self.interface.GetNextPacketSize()? as usize
-        };
+        let frames_available = unsafe { self.interface.GetNextPacketSize()? as usize };
         if frames_available == 0 {
             return Ok(());
         }
         let Some(mut buffer) = AudioCaptureBuffer::<f32>::from_client(
             &self.interface,
             self.stream_config.channels.count(),
-        )? else {
+        )?
+        else {
             eprintln!("Null buffer from WASAPI");
             return Ok(());
         };

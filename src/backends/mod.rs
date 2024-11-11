@@ -34,7 +34,7 @@ pub mod wasapi;
 /// | **Platform** | **Driver** |
 /// |:------------:|:----------:|
 /// |     Linux    |    ALSA    |
-/// |     macOS    | CoreAudio  |
+/// |     macOS    |  CoreAudio |
 /// |    Windows   |   WASAPI   |
 #[cfg(any(os_alsa, os_coreaudio, os_wasapi))]
 #[allow(clippy::needless_return)]
