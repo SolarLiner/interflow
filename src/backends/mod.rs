@@ -5,7 +5,6 @@
 //! Each backend is provided in its own submodule. Types should be public so that the user isn't
 //! limited to going through the main API if they want to choose a specific backend.
 
-use wasapi::driver;
 use crate::{
     AudioDriver, AudioInputDevice, AudioOutputDevice, DeviceType,
 };
@@ -105,5 +104,5 @@ pub fn default_output_device() -> impl AudioOutputDevice {
     #[cfg(os_coreaudio)]
     return default_output_device_from(&coreaudio::CoreAudioDriver);
     #[cfg(os_wasapi)]
-    return default_output_device_from(&driver::WasapiDriver);
+    return default_output_device_from(&wasapi::WasapiDriver);
 }
