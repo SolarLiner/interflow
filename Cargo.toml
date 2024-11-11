@@ -46,6 +46,10 @@ name = "enumerate_alsa"
 path = "examples/enumerate_alsa.rs"
 
 [[example]]
+name = "enumerate_coreaudio"
+path = "examples/enumerate_coreaudio.rs"
+
+[[example]]
 name = "enumerate_wasapi"
 path = "examples/enumerate_wasapi.rs"
 
