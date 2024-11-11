@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
-use std::{borrow::Cow, ffi::CStr};
+use std::borrow::Cow;
 
 use alsa::{device_name::HintIter, pcm, PCM};
 use thiserror::Error;
@@ -53,10 +53,6 @@ impl AudioDriver for AlsaDriver {
     }
 
     fn list_devices(&self) -> Result<impl IntoIterator<Item = Self::Device>, Self::Error> {
-        const C_PCM: &CStr = match CStr::from_bytes_with_nul(b"pcm\0") {
-            Ok(cstr) => cstr,
-            Err(_) => unreachable!(),
-        };
         Ok(HintIter::new(None, c"pcm")?
             .filter_map(|hint| AlsaDevice::new(hint.name.as_ref()?, hint.direction?).ok()))
     }
@@ -210,11 +206,12 @@ impl AlsaDevice {
     fn default_config(&self) -> Result<StreamConfig, AlsaError> {
         let samplerate = 48000.; // Default ALSA sample rate
         let channel_count = 2; // Stereo stream
-        let channels = 1 << channel_count - 1;
+        let channels = 1 << (channel_count - 1);
         Ok(StreamConfig {
             samplerate: samplerate as _,
             channels,
             buffer_size_range: (None, None),
+            exclusive: false,
         })
     }
 }
@@ -259,6 +256,7 @@ impl<Callback: 'static + Send + AudioInputCallback> AlsaStream<Callback> {
                     channels: ChannelMap32::default()
                         .with_indices(std::iter::repeat(1).take(num_channels)),
                     buffer_size_range: (Some(period_size), Some(period_size)),
+                    exclusive: false,
                 };
                 let mut timestamp = Timestamp::new(samplerate);
                 let mut buffer = vec![0f32; period_size * num_channels];
@@ -274,13 +272,10 @@ impl<Callback: 'static + Send + AudioInputCallback> AlsaStream<Callback> {
                     }
                     let frames = device.pcm.avail_update()? as usize;
                     let len = frames * num_channels;
-                    match io.readi(&mut buffer[..len]) {
-                        Err(err) => {
-                            log::warn!("ALSA PCM error, trying to recover ...");
-                            log::debug!("Error: {err}");
-                            device.pcm.try_recover(err, true)?;
-                        }
-                        _ => {}
+                    if let Err(err) = io.readi(&mut buffer[..len]) {
+                        log::warn!("ALSA PCM error, trying to recover ...");
+                        log::debug!("Error: {err}");
+                        device.pcm.try_recover(err, true)?;
                     }
                     let buffer = AudioRef::from_interleaved(&buffer[..len], num_channels).unwrap();
                     let context = AudioCallbackContext {
@@ -333,6 +328,7 @@ impl<Callback: 'static + Send + AudioOutputCallback> AlsaStream<Callback> {
                     channels: ChannelMap32::default()
                         .with_indices(std::iter::repeat(1).take(num_channels)),
                     buffer_size_range: (Some(period_size), Some(period_size)),
+                    exclusive: false,
                 };
                 let frames = device.pcm.avail_update()? as usize;
                 let mut timestamp = Timestamp::new(samplerate);
@@ -358,10 +354,7 @@ impl<Callback: 'static + Send + AudioOutputCallback> AlsaStream<Callback> {
                     };
                     callback.on_output_data(context, input);
                     timestamp += frames as u64;
-                    match io.writei(&buffer[..len]) {
-                        Err(err) => device.pcm.try_recover(err, true)?,
-                        _ => {}
-                    }
+                    if let Err(err) = io.writei(&buffer[..len]) { device.pcm.try_recover(err, true)? }
                     match device.pcm.state() {
                         pcm::State::Suspended => {
                             if hwp.can_resume() {
