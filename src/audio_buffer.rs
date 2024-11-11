@@ -286,6 +286,21 @@ impl<S: DataMut> AudioBufferBase<S>
 where
     S::Elem: Clone,
 {
+    /// Returns a mutable view over each channel of the frame at the given index.
+    /// 
+    /// # Arguments 
+    /// 
+    /// * `sample`: Sample index for the frame to return.
+    /// 
+    /// # Panics
+    /// 
+    /// Panics if the sample index is out of range.
+    /// 
+    /// returns: ArrayBase<ViewRepr<&mut <S as RawData>::Elem>, Dim<[usize; 1]>> 
+    pub fn get_frame_mut(&mut self, sample: usize) -> ArrayViewMut1<S::Elem> {
+        self.storage.column_mut(sample)
+    }
+    
     /// Sets audio data of a single frame, that is all channels at the specified sample index.
     /// Panics when the sample is out of range.
     pub fn set_frame<'a>(&mut self, sample: usize, data: impl AsArray<'a, S::Elem, Ix1>)

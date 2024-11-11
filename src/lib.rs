@@ -12,6 +12,7 @@ pub mod backends;
 pub mod channel_map;
 pub mod prelude;
 pub mod timestamp;
+pub mod duplex;
 
 /// Audio drivers provide access to the inputs and outputs of physical devices.
 /// Several drivers might provide the same accesses, some sharing it with other applications,
