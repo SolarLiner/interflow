@@ -16,13 +16,13 @@ and format conversion.
 
 ## Supported drivers
 
-- [ ] WASAPI
+- [x] WASAPI
 - [ ] ASIO
-- [ ] ALSA
+- [x] ALSA
 - [ ] PulseAudio
 - [ ] PipeWire
 - [ ] JACK
-- [ ] CoreAudio
+- [x] CoreAudio
 
 ## Getting Started
 
