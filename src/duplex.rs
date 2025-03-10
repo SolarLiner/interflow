@@ -209,17 +209,17 @@ pub struct DuplexStreamHandle<InputHandle, OutputHandle> {
 }
 
 impl<
-    Callback,
-    InputHandle: AudioStreamHandle<InputProxy>,
-    OutputHandle: AudioStreamHandle<DuplexCallback<Callback>>,
-> AudioStreamHandle<Callback> for DuplexStreamHandle<InputHandle, OutputHandle>
+        Callback,
+        InputHandle: AudioStreamHandle<InputProxy>,
+        OutputHandle: AudioStreamHandle<DuplexCallback<Callback>>,
+    > AudioStreamHandle<Callback> for DuplexStreamHandle<InputHandle, OutputHandle>
 {
     type Error = DuplexCallbackError<InputHandle::Error, OutputHandle::Error>;
 
     /// Stops the duplex stream and retrieves the callback instance.
     ///
     /// # Returns
-    /// 
+    ///
     /// The callback instance if successful, or an error if the stream cannot be stopped properly
     fn eject(self) -> Result<Callback, Self::Error> {
         self.input_handle
@@ -242,7 +242,7 @@ impl<
 /// in the buffer, while the output stream retrieves and processes this data before playback.
 ///
 /// # Arguments
-/// 
+///
 /// * `input_device` - The audio input device to capture audio from
 /// * `input_config` - Configuration parameters for the input stream
 /// * `output_device` - The audio output device to play audio through
@@ -250,13 +250,13 @@ impl<
 /// * `callback` - The callback implementation that processes audio data
 ///
 /// # Returns
-/// 
+///
 /// A Result containing either:
 /// * A `DuplexStreamHandle` that can be used to manage the duplex stream
 /// * A `DuplexCallbackError` if stream creation fails
 ///
 /// # Example
-/// 
+///
 /// ```no_run
 /// use interflow::duplex::AudioDuplexCallback;
 /// use interflow::prelude::*;
@@ -289,7 +289,7 @@ impl<
 ///     output_config,
 ///     callback
 /// ).expect("Failed to create duplex stream");
-/// 
+///
 /// ```
 pub fn create_duplex_stream<
     InputDevice: AudioInputDevice,
