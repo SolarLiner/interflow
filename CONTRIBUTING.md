@@ -5,10 +5,9 @@ First off, thank you for considering contributing to this project! It's people l
 ## Table of Contents
 
 - [Code of Conduct](#code-of-conduct)
-- [Getting Started](#getting-started)
 - [How Can I Contribute?](#how-can-i-contribute)
 - [Development Process](#development-process)
-- [Pull Request Process](#pull-request-process)
+- [Pull Requests](#pull-requests)
 - [Style Guidelines](#style-guidelines)
 
 ## Code of Conduct
@@ -54,11 +53,12 @@ Before starting, try to first open an issue, before starting your work on a PR. 
 **Open your PR early!** You can mark your PR as a draft to signal that it isn't yet ready for review. Having PRs opened early shows what is being worked on and reduces
 the duplication of effort.
 
-### Prerequisites
+#### Prerequisites
 
 - Rust 1.85.0 or later
 - Any supported audio API (or the one you want to add) to be able to run the tests.
 
+#### PR opening process
 
 * Fill in the required template
 * Do not include issue numbers in the PR title
