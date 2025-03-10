@@ -1,3 +1,5 @@
+//! Duplex audio streams allow for processing both input and output audio data in a single callback. 
+
 use crate::audio_buffer::AudioBuffer;
 use crate::channel_map::Bitset;
 use crate::{
@@ -11,7 +13,9 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use thiserror::Error;
 
+/// A callback that processes both input and output audio data.
 pub trait AudioDuplexCallback: 'static + SendEverywhereButOnWeb {
+    /// Process audio data from both input and output streams.
     fn on_audio_data(
         &mut self,
         context: AudioCallbackContext,
@@ -20,10 +24,13 @@ pub trait AudioDuplexCallback: 'static + SendEverywhereButOnWeb {
     );
 }
 
+/// A duplex audio stream.
 pub struct DuplexStream<Callback, Error> {
     input_stream: Box<dyn AudioStreamHandle<InputProxy, Error = Error>>,
     output_stream: Box<dyn AudioStreamHandle<DuplexCallback<Callback>, Error = Error>>,
 }
+
+/// A proxy for input audio data.
 pub struct InputProxy {
     buffer: rtrb::Producer<f32>,
     output_sample_rate: Arc<AtomicU64>,
@@ -74,14 +81,19 @@ fn lerpf(x: f32, a: f32, b: f32) -> f32 {
     a + (b - a) * x
 }
 
+/// Error type for duplex audio streams.
 #[derive(Debug, Error)]
 #[error(transparent)]
 pub enum DuplexCallbackError<InputError, OutputError> {
+    /// An error occurred in the input stream.
     InputError(InputError),
+    /// An error occurred in the output stream.
     OutputError(OutputError),
+    /// An error occurred in the callback.
     Other(Box<dyn Error>),
 }
 
+/// A callback that forwards input audio data to an output audio stream.
 pub struct DuplexCallback<Callback> {
     input: rtrb::Consumer<f32>,
     callback: Callback,
@@ -90,6 +102,7 @@ pub struct DuplexCallback<Callback> {
 }
 
 impl<Callback> DuplexCallback<Callback> {
+    /// Extract the inner callback from the duplex callback.
     pub fn into_inner(self) -> Result<Callback, Box<dyn Error>> {
         Ok(self.callback)
     }
@@ -114,6 +127,7 @@ impl<Callback: AudioDuplexCallback> AudioOutputCallback for DuplexCallback<Callb
     }
 }
 
+/// A handle to a duplex audio stream.
 #[derive(Debug)]
 pub struct DuplexStreamHandle<InputHandle, OutputHandle> {
     input_handle: InputHandle,
@@ -135,6 +149,8 @@ impl<
     }
 }
 
+/// Create a new duplex audio stream with the given input and output devices, configurations, and
+/// callback.
 pub fn create_duplex_stream<
     InputDevice: AudioInputDevice,
     OutputDevice: AudioOutputDevice,

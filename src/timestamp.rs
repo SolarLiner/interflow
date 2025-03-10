@@ -1,3 +1,12 @@
+//! Timestamp information for audio data.
+//!
+//! Timestamps are used to represent a position in an audio stream. They are typically used to
+//! synchronize audio and video data, or to represent the position of a marker in an audio editor.
+//!
+//! A [`Timestamp`] consists of a sample count and a sample rate. It can be converted to a
+//! [`Duration`] or a number of seconds, and can be updated by adding a number of samples or a
+//! [`Duration`] to it.
+
 use std::ops;
 use std::ops::AddAssign;
 use std::time::Duration;

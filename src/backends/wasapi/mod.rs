@@ -1,3 +1,5 @@
+//! Windows Audio Session API (WASAPI) backend for interflow.
+
 mod util;
 
 mod error;

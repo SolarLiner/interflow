@@ -1,3 +1,5 @@
+//! Audio buffer types and utilities for working with audio data.
+
 use std::collections::Bound;
 use std::fmt;
 use std::fmt::Formatter;

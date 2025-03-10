@@ -1,3 +1,5 @@
+//! A module for working with channel maps, representing a set of channels.
+
 use core::panic;
 
 /// Trait for types which can represent bitsets.

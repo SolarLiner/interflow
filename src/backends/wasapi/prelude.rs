@@ -1,3 +1,5 @@
+//! # WASAPI prelude
+
 pub use super::{
     device::WasapiDevice,
     driver::WasapiDriver,

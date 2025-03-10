@@ -137,6 +137,8 @@ pub trait AudioInputDevice: AudioDevice {
     /// externally, or stop it completely and give back ownership of the callback with
     /// [`AudioStreamHandle::eject`].
     type StreamHandle<Callback: AudioInputCallback>: AudioStreamHandle<Callback>;
+
+    /// Default input stream configuration for this device.
     fn default_input_config(&self) -> Result<StreamConfig, Self::Error>;
 
     /// Creates an input stream with the provided stream configuration. For this call to be
@@ -151,6 +153,10 @@ pub trait AudioInputDevice: AudioDevice {
         callback: Callback,
     ) -> Result<Self::StreamHandle<Callback>, Self::Error>;
 
+    /// Creates an input stream with the default input configuration.
+    /// 
+    /// An input callback is required to process the audio, whose ownership will be transferred
+    /// to the audio stream.
     fn default_input_stream<Callback: SendEverywhereButOnWeb + AudioInputCallback>(
         &self,
         callback: Callback,
@@ -168,6 +174,8 @@ pub trait AudioOutputDevice: AudioDevice {
     /// externally, or stop it completely and give back ownership of the callback with
     /// [`AudioStreamHandle::eject`].
     type StreamHandle<Callback: AudioOutputCallback>: AudioStreamHandle<Callback>;
+
+    /// Default output stream configuration for this device.
     fn default_output_config(&self) -> Result<StreamConfig, Self::Error>;
 
     /// Creates an output stream with the provided stream configuration. For this call to be
@@ -182,6 +190,10 @@ pub trait AudioOutputDevice: AudioDevice {
         callback: Callback,
     ) -> Result<Self::StreamHandle<Callback>, Self::Error>;
 
+    /// Creates an output stream with the default output configuration.
+    /// 
+    /// An output callback is required to process the audio, whose ownership will be transferred
+    /// to the audio stream.
     fn default_output_stream<Callback: SendEverywhereButOnWeb + AudioOutputCallback>(
         &self,
         callback: Callback,
