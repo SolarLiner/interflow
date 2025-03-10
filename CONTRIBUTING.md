@@ -77,7 +77,7 @@ the duplication of effort.
 5. Run `cargo fmt` to format code
 6. Run `cargo clippy` to check for common mistakes
 7. Run `cargo test` for unit tests, and run the examples to make sure they still work
-8. Commit your changes using clear commit messages (see [Git Commit Message](#git-commit-messages).
+8. Commit your changes using clear commit messages (see [Git Commit Message](#git-commit-messages)).
 9. Push to your fork
 10. Open a Pull Request
 
@@ -89,7 +89,7 @@ While not enforced, the [Conventional Commits](https://www.conventionalcommits.o
 
 * Use the present tense ("Add feature" not "Added feature")
 * Use the imperative mood ("Move cursor to..." not "Moves cursor to...")
-* Limit the first line to 72 characters or less
+* Limit the first line to 72 characters or fewer
 * Reference issues and pull requests liberally after the first line
 
 ### Rust Code Style
