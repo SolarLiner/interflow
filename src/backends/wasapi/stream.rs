@@ -104,10 +104,10 @@ impl<'a, T> AudioCaptureBuffer<'a, T> {
         let mut buf_ptr = ptr::null_mut();
         let mut frame_size = 0;
         let mut flags = 0;
-        unsafe {
-            capture_client.GetBuffer(&mut buf_ptr, &mut frame_size, &mut flags, None, None)
-        }?;
-        let Some(data) = NonNull::new(buf_ptr as _) else { return Ok(None); };
+        unsafe { capture_client.GetBuffer(&mut buf_ptr, &mut frame_size, &mut flags, None, None) }?;
+        let Some(data) = NonNull::new(buf_ptr as _) else {
+            return Ok(None);
+        };
         Ok(Some(Self {
             interface: capture_client,
             data,

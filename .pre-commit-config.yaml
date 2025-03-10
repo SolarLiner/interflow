@@ -1,0 +1,16 @@
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+repos:
+-   repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v3.2.0
+    hooks:
+    -   id: trailing-whitespace
+    -   id: end-of-file-fixer
+    -   id: check-yaml
+    -   id: check-added-large-files
+-   repo: https://github.com/doublify/pre-commit-rust
+    rev: 6ef59f4af072d8ecd77e54f11e84536a0126cfa3
+    hooks:
+    -   id: cargo-fmt
+    -   id: cargo-clippy
+        args: []

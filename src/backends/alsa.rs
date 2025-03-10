@@ -6,11 +6,11 @@
 //! audio devices through them.
 
 use core::fmt;
+use std::borrow::Cow;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
-use std::borrow::Cow;
 
 use alsa::{device_name::HintIter, pcm, PCM};
 use thiserror::Error;
@@ -354,7 +354,9 @@ impl<Callback: 'static + Send + AudioOutputCallback> AlsaStream<Callback> {
                     };
                     callback.on_output_data(context, input);
                     timestamp += frames as u64;
-                    if let Err(err) = io.writei(&buffer[..len]) { device.pcm.try_recover(err, true)? }
+                    if let Err(err) = io.writei(&buffer[..len]) {
+                        device.pcm.try_recover(err, true)?
+                    }
                     match device.pcm.state() {
                         pcm::State::Suspended => {
                             if hwp.can_resume() {

@@ -44,10 +44,10 @@ Before starting, try to first open an issue, before starting your work on a PR. 
 2. Clone your fork: `git clone https://github.com/solarliner/interflow`
 3. Create a new branch: `git checkout -b your-branch-name`. Branch name should begin with `feature/`, `feat/`, `fix/` or `bugfix/` in order to create folders and organize the branches,
    and for this reason, they should be in lowercase (so that we don't end up with `fix` and `Fix` folder on Linux machines!)
-5. Make sure to have the [prerequisites](#prerequisites) below
-6. Make your changes
-7. Run tests: `cargo test`
-8. Submit a PR: the title should be descriptive of the changes in one sentence, and should have the `closes \#NNN` message that tells GitHub to automatically close the related
+4. Make sure to have the [prerequisites](#prerequisites) below
+5. Make your changes
+6. Run tests: `cargo test`
+7. Submit a PR: the title should be descriptive of the changes in one sentence, and should have the `closes \#NNN` message that tells GitHub to automatically close the related
    issue, if there is one (there should, see above).
 
 **Open your PR early!** You can mark your PR as a draft to signal that it isn't yet ready for review. Having PRs opened early shows what is being worked on and reduces
@@ -57,6 +57,7 @@ the duplication of effort.
 
 - Rust 1.85.0 or later
 - Any supported audio API (or the one you want to add) to be able to run the tests.
+- `pre-commit` installed into the repository
 
 #### PR opening process
 
@@ -76,7 +77,7 @@ the duplication of effort.
 5. Run `cargo fmt` to format code
 6. Run `cargo clippy` to check for common mistakes
 7. Run `cargo test` for unit tests, and run the examples to make sure they still work
-8. Commit your changes using clear commit messages (see [Git Commit Message](#git-commit-messages).
+8. Commit your changes using clear commit messages (see [Git Commit Message](#git-commit-messages)).
 9. Push to your fork
 10. Open a Pull Request
 
@@ -88,7 +89,7 @@ While not enforced, the [Conventional Commits](https://www.conventionalcommits.o
 
 * Use the present tense ("Add feature" not "Added feature")
 * Use the imperative mood ("Move cursor to..." not "Moves cursor to...")
-* Limit the first line to 72 characters or less
+* Limit the first line to 72 characters or fewer
 * Reference issues and pull requests liberally after the first line
 
 ### Rust Code Style

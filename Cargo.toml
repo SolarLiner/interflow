@@ -53,4 +53,3 @@ path = "examples/enumerate_coreaudio.rs"
 [[example]]
 name = "enumerate_wasapi"
 path = "examples/enumerate_wasapi.rs"
-

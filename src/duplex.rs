@@ -129,9 +129,16 @@ impl<
     type Error = DuplexCallbackError<InputHandle::Error, OutputHandle::Error>;
 
     fn eject(self) -> Result<Callback, Self::Error> {
-        self.input_handle.eject().map_err(DuplexCallbackError::InputError)?;
-        let duplex_callback = self.output_handle.eject().map_err(DuplexCallbackError::OutputError)?;
-        Ok(duplex_callback.into_inner().map_err(DuplexCallbackError::Other)?)
+        self.input_handle
+            .eject()
+            .map_err(DuplexCallbackError::InputError)?;
+        let duplex_callback = self
+            .output_handle
+            .eject()
+            .map_err(DuplexCallbackError::OutputError)?;
+        duplex_callback
+            .into_inner()
+            .map_err(DuplexCallbackError::Other)
     }
 }
 
@@ -154,25 +161,29 @@ pub fn create_duplex_stream<
 > {
     let (producer, consumer) = rtrb::RingBuffer::new(input_config.samplerate as _);
     let output_sample_rate = Arc::new(AtomicU64::new(0));
-    let input_handle = input_device.create_input_stream(
-        input_config,
-        InputProxy {
-            buffer: producer,
-            output_sample_rate: output_sample_rate.clone(),
-        },
-    ).map_err(DuplexCallbackError::InputError)?;
-    let output_handle = output_device.create_output_stream(
-        output_config,
-        DuplexCallback {
-            input: consumer,
-            callback,
-            storage: AudioBuffer::zeroed(
-                input_config.channels.count(),
-                input_config.samplerate as _,
-            ),
-            output_sample_rate,
-        },
-    ).map_err(DuplexCallbackError::OutputError)?;
+    let input_handle = input_device
+        .create_input_stream(
+            input_config,
+            InputProxy {
+                buffer: producer,
+                output_sample_rate: output_sample_rate.clone(),
+            },
+        )
+        .map_err(DuplexCallbackError::InputError)?;
+    let output_handle = output_device
+        .create_output_stream(
+            output_config,
+            DuplexCallback {
+                input: consumer,
+                callback,
+                storage: AudioBuffer::zeroed(
+                    input_config.channels.count(),
+                    input_config.samplerate as _,
+                ),
+                output_sample_rate,
+            },
+        )
+        .map_err(DuplexCallbackError::OutputError)?;
     Ok(DuplexStreamHandle {
         input_handle,
         output_handle,

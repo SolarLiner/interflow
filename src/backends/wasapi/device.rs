@@ -2,7 +2,10 @@ use super::{error, stream};
 use crate::backends::wasapi::stream::WasapiStream;
 use crate::channel_map::Bitset;
 use crate::prelude::wasapi::util::WasapiMMDevice;
-use crate::{AudioDevice, AudioInputCallback, AudioInputDevice, AudioOutputCallback, AudioOutputDevice, Channel, DeviceType, StreamConfig};
+use crate::{
+    AudioDevice, AudioInputCallback, AudioInputDevice, AudioOutputCallback, AudioOutputDevice,
+    Channel, DeviceType, StreamConfig,
+};
 use std::borrow::Cow;
 use windows::Win32::Media::Audio;
 
@@ -45,9 +48,7 @@ impl AudioDevice for WasapiDevice {
 
     fn is_config_supported(&self, config: &StreamConfig) -> bool {
         match self.device_type {
-            DeviceType::Output => {
-                stream::is_output_config_supported(self.device.clone(), config)
-            }
+            DeviceType::Output => stream::is_output_config_supported(self.device.clone(), config),
             _ => false,
         }
     }
@@ -57,15 +58,15 @@ impl AudioDevice for WasapiDevice {
     }
 }
 
-
 impl AudioInputDevice for WasapiDevice {
     type StreamHandle<Callback: AudioInputCallback> = WasapiStream<Callback>;
 
     fn default_input_config(&self) -> Result<StreamConfig, Self::Error> {
         let audio_client = self.device.activate::<Audio::IAudioClient>()?;
-        let format = unsafe {
-            audio_client.GetMixFormat()?.read_unaligned() };
-        let frame_size = unsafe { audio_client.GetBufferSize() }.map(|i| i as usize).ok();
+        let format = unsafe { audio_client.GetMixFormat()?.read_unaligned() };
+        let frame_size = unsafe { audio_client.GetBufferSize() }
+            .map(|i| i as usize)
+            .ok();
         Ok(StreamConfig {
             channels: 0u32.with_indices(0..format.nChannels as _),
             exclusive: false,
@@ -92,9 +93,10 @@ impl AudioOutputDevice for WasapiDevice {
 
     fn default_output_config(&self) -> Result<StreamConfig, Self::Error> {
         let audio_client = self.device.activate::<Audio::IAudioClient>()?;
-        let format = unsafe {
-            audio_client.GetMixFormat()?.read_unaligned() };
-        let frame_size = unsafe { audio_client.GetBufferSize() }.map(|i| i as usize).ok();
+        let format = unsafe { audio_client.GetMixFormat()?.read_unaligned() };
+        let frame_size = unsafe { audio_client.GetBufferSize() }
+            .map(|i| i as usize)
+            .ok();
         Ok(StreamConfig {
             channels: 0u32.with_indices(0..format.nChannels as _),
             exclusive: false,

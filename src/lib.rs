@@ -10,9 +10,9 @@ use crate::timestamp::Timestamp;
 pub mod audio_buffer;
 pub mod backends;
 pub mod channel_map;
+pub mod duplex;
 pub mod prelude;
 pub mod timestamp;
-pub mod duplex;
 
 /// Audio drivers provide access to the inputs and outputs of physical devices.
 /// Several drivers might provide the same accesses, some sharing it with other applications,
