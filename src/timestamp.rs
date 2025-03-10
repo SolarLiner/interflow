@@ -1,3 +1,29 @@
+//! Module for handling timestamp and duration calculations in audio processing.
+//!
+//! This module provides the [`Timestamp`] type, which manages time-related operations
+//! for audio streams by tracking sample counts and their corresponding durations based
+//! on a specified sample rate. It supports basic arithmetic operations for sample
+//! counting and duration calculations, making it useful for audio stream synchronization
+//! and timing operations.
+//!
+//! # Examples
+//!
+//! ```rust
+//! use std::time::Duration;
+//! use interflow::timestamp::Timestamp;
+//!
+//! // Create a timestamp for 48 kHz audio
+//! let mut ts = Timestamp::new(48000.);
+//!
+//! // Add 48 samples (1ms at 48kHz)
+//! ts += 48;
+//! assert_eq!(ts.as_duration(), Duration::from_millis(1));
+//!
+//! // Convert a duration to samples
+//! let ts2 = Timestamp::from_duration(48000., Duration::from_millis(100));
+//! assert_eq!(ts2.counter, 4800);
+//! ```
+
 use std::ops;
 use std::ops::AddAssign;
 use std::time::Duration;
