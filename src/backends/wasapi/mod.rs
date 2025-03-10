@@ -2,9 +2,9 @@ mod util;
 
 mod error;
 
-pub(crate) mod driver;
 mod device;
-mod stream;
+pub(crate) mod driver;
 pub mod prelude;
+mod stream;
 
 pub use prelude::*;

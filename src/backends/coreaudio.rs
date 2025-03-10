@@ -68,12 +68,10 @@ impl AudioDriver for CoreAudioDriver {
             .into_iter()
             .map(|scope| {
                 let audio_ids = get_audio_device_ids_for_scope(scope)?;
-                Ok::<_, CoreAudioError>(
-                    audio_ids
-                        .into_iter()
-                        .map(|id| CoreAudioDevice::from_id(scope, id))
-                        .collect::<Result<Vec<_>, _>>()?,
-                )
+                audio_ids
+                    .into_iter()
+                    .map(|id| CoreAudioDevice::from_id(scope, id))
+                    .collect::<Result<Vec<_>, _>>()
             })
             .collect::<Result<Vec<_>, _>>()?;
         Ok(per_scope.into_iter().flatten())
@@ -166,7 +164,7 @@ impl AudioDevice for CoreAudioDevice {
                         .map(move |exclusive| (sr, exclusive))
                 })
                 .map(move |(samplerate, exclusive)| {
-                    let channels = 1 << asbd.mFormat.mChannelsPerFrame as u32 - 1;
+                    let channels = 1 << (asbd.mFormat.mChannelsPerFrame - 1);
                     StreamConfig {
                         samplerate,
                         channels,
@@ -290,7 +288,7 @@ impl<Callback: 'static + Send + AudioInputCallback> CoreAudioStream<Callback> {
             }
             let mut buffer = buffer.slice_mut(..args.num_frames);
             for (input, mut inner) in args.data.channels().zip(buffer.channels_mut()) {
-                for (s1, s2) in input.into_iter().zip(inner.iter_mut()) {
+                for (s1, s2) in input.iter().zip(inner.iter_mut()) {
                     *s2 = s1.into_float();
                 }
             }
@@ -309,7 +307,7 @@ impl<Callback: 'static + Send + AudioInputCallback> CoreAudioStream<Callback> {
                     input,
                 );
                 for (input, inner) in args.data.channels_mut().zip(buffer.channels()) {
-                    for (s1, s2) in input.into_iter().zip(inner.iter()) {
+                    for (s1, s2) in input.iter_mut().zip(inner.iter()) {
                         *s1 = i16::from_float(*s2);
                     }
                 }

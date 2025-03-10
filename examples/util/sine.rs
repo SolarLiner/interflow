@@ -28,7 +28,7 @@ impl SineWave {
             phase: 0.0,
         }
     }
-    
+
     pub fn next_sample(&mut self, samplerate: f32) -> f32 {
         let step = samplerate.recip() * self.frequency;
         let y = (TAU * self.phase).sin();

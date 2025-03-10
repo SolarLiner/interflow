@@ -1,8 +1,8 @@
-use std::borrow::Cow;
-use windows::Win32::System::Com;
-use windows::Win32::Media::Audio;
-use std::sync::OnceLock;
 use crate::backends::wasapi::device::{WasapiDevice, WasapiDeviceList};
+use std::borrow::Cow;
+use std::sync::OnceLock;
+use windows::Win32::Media::Audio;
+use windows::Win32::System::Com;
 
 use super::{error, util};
 
@@ -74,7 +74,9 @@ impl AudioDeviceEnumerator {
     }
 
     // Returns a chained iterator of output and input devices.
-    fn get_device_list(&self) -> Result<impl IntoIterator<Item = WasapiDevice>, error::WasapiError> {
+    fn get_device_list(
+        &self,
+    ) -> Result<impl IntoIterator<Item = WasapiDevice>, error::WasapiError> {
         // Create separate collections for output and input devices and then chain them.
         unsafe {
             let output_collection = self

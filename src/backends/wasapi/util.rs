@@ -1,14 +1,16 @@
 use crate::prelude::wasapi::error;
+use std::ffi::OsString;
 use std::marker::PhantomData;
+use std::os::windows::ffi::OsStringExt;
 use windows::core::Interface;
+use windows::Win32::Devices::Properties;
 use windows::Win32::Foundation::RPC_E_CHANGED_MODE;
 use windows::Win32::Media::Audio;
 use windows::Win32::System::Com;
-use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, StructuredStorage, COINIT_APARTMENTTHREADED, STGM_READ};
-use windows::Win32::Devices::Properties;
+use windows::Win32::System::Com::{
+    CoInitializeEx, CoUninitialize, StructuredStorage, COINIT_APARTMENTTHREADED, STGM_READ,
+};
 use windows::Win32::System::Variant::VT_LPWSTR;
-use std::ffi::OsString;
-use std::os::windows::ffi::OsStringExt;
 
 thread_local!(static COM_INITIALIZER: ComInitializer = {
     unsafe {
@@ -77,7 +79,7 @@ impl WasapiMMDevice {
                 .map_err(|err| error::WasapiError::BackendError(err))
         }
     }
-    
+
     pub(crate) fn name(&self) -> Option<String> {
         get_device_name(&self.0)
     }
