@@ -24,11 +24,6 @@ use std::fmt;
 use std::fmt::Formatter;
 use std::ops::{AddAssign, RangeBounds};
 
-use ndarray::{
-    s, Array0, ArrayBase, ArrayView1, ArrayView2, ArrayViewMut1, ArrayViewMut2, AsArray, CowRepr,
-    Data, DataMut, DataOwned, Ix1, Ix2, OwnedArcRepr, OwnedRepr, RawData, RawDataClone, ViewRepr,
-};
-
 /// Owned audio buffer type.
 pub type AudioBuffer<T> = AudioBufferBase<OwnedRepr<T>>;
 /// Immutably referenced audio buffer type.
@@ -148,6 +143,46 @@ impl<S: Data> AudioBufferBase<S> {
         AudioRef { storage }
     }
 
+    /// Iterate over non-overlapping chunks of this audio buffer.
+    pub fn chunks(&self, size: usize) -> impl Iterator<Item = AudioRef<S::Elem>> {
+        let mut i = 0;
+        std::iter::from_fn(move || {
+            if i >= self.num_samples() {
+                return None;
+            }
+            let range = i..(i + size).min(self.num_samples());
+            i += size;
+            Some(self.slice(range))
+        })
+    }
+
+    /// Iterate over non-overlapping chunks of this audio buffer. If the last chunk has a smaller length than the
+    /// requested size, it will not be yielded.
+    pub fn chunks_exact(&self, size: usize) -> impl Iterator<Item = AudioRef<S::Elem>> {
+        let mut i = 0;
+        std::iter::from_fn(move || {
+            if i + size >= self.num_samples() {
+                return None;
+            }
+            let range = i..i + size;
+            i += size;
+            Some(self.slice(range))
+        })
+    }
+
+    // Iterate over overlapping windows of this audio buffer.
+    pub fn windows(&self, size: usize) -> impl Iterator<Item = AudioRef<S::Elem>> {
+        let mut i = 0;
+        std::iter::from_fn(move || {
+            if i + size >= self.num_samples() {
+                return None;
+            }
+            let range = i..(i + size).min(self.num_samples());
+            i += 1;
+            Some(self.slice(range))
+        })
+    }
+
     /// Return an immutable view of a single channel. Panics when the requested channel does not
     /// exist.
     pub fn get_channel(&self, channel: usize) -> ArrayView1<S::Elem> {
@@ -241,6 +276,24 @@ impl<S: DataMut> AudioBufferBase<S> {
     /// columns.
     pub fn as_interleaved_mut(&mut self) -> ArrayViewMut2<S::Elem> {
         self.storage.view_mut().reversed_axes()
+    }
+
+    /// Copies audio data into this buffer from the provided interleaved audio buffer. The `output` buffer
+    /// must represent an interleaved buffer with the same number of channels and same number of
+    /// samples.
+    #[must_use]
+    pub fn copy_from_interleaved(&mut self, input: &[S::Elem]) -> bool
+    where
+        S::Elem: Copy,
+    {
+        if input.len() != self.storage.len() {
+            return false;
+        }
+
+        for (out, inp) in self.as_interleaved_mut().iter_mut().zip(input.iter()) {
+            *out = *inp;
+        }
+        true
     }
 }
 

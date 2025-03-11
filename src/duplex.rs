@@ -11,9 +11,10 @@ use crate::{
 };
 use ndarray::{ArrayView1, ArrayViewMut1};
 use std::error::Error;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::num::NonZeroUsize;
 use thiserror::Error;
+
+const MAX_CHANNELS: usize = 64;
 
 /// Trait of types that can process both input and output audio streams at the same time.
 pub trait AudioDuplexCallback: 'static + SendEverywhereButOnWeb {
@@ -39,8 +40,29 @@ pub struct DuplexStream<Callback, Error> {
 
 /// Input proxy for transferring an input signal to a separate output callback to be processed as a duplex stream.
 pub struct InputProxy {
-    buffer: rtrb::Producer<f32>,
-    output_sample_rate: Arc<AtomicU64>,
+    producer: Option<fixed_resample::ResamplingProd<f32, MAX_CHANNELS>>,
+    receive_output_samplerate: rtrb::Consumer<u32>,
+    send_consumer: rtrb::Producer<fixed_resample::ResamplingCons<f32>>,
+}
+
+impl InputProxy {
+    pub fn new() -> (
+        Self,
+        rtrb::Producer<u32>,
+        rtrb::Consumer<fixed_resample::ResamplingCons<f32>>,
+    ) {
+        let (send_consumer, receive_consumer) = rtrb::RingBuffer::new(1);
+        let (produce_output_samplerate, receive_output_samplerate) = rtrb::RingBuffer::new(1);
+        (
+            Self {
+                producer: None,
+                receive_output_samplerate,
+                send_consumer,
+            },
+            produce_output_samplerate,
+            receive_consumer,
+        )
+    }
 }
 
 impl AudioInputCallback for InputProxy {
@@ -54,71 +76,64 @@ impl AudioInputCallback for InputProxy {
     fn on_input_data(&mut self, context: AudioCallbackContext, input: AudioInput<f32>) {
         log::trace!(num_samples = input.buffer.num_samples(), num_channels = input.buffer.num_channels();
             "on_input_data");
-        let input_slots = input.buffer.num_samples() * input.buffer.num_channels();
-        if self.buffer.slots() < input_slots {
-            log::error!(buffer_slots=self.buffer.slots(), input_slots; "Input proxy buffer underrun");
+        if let Ok(output_samplerate) = self.receive_output_samplerate.pop() {
+            let Some(num_channels) = NonZeroUsize::new(context.stream_config.channels.count())
+            else {
+                log::error!("Input proxy: no input channels given");
+                return;
+            };
+            let input_samplerate = context.stream_config.samplerate as _;
+            log::debug!(
+                "Creating resampling channel ({} Hz) -> ({} Hz) ({} channels)",
+                input_samplerate,
+                output_samplerate,
+                num_channels.get()
+            );
+            let (tx, rx) = fixed_resample::resampling_channel(
+                num_channels,
+                input_samplerate,
+                output_samplerate,
+                Default::default(),
+            );
+            self.producer.replace(tx);
+            match self.send_consumer.push(rx) {
+                Ok(_) => {
+                    log::debug!(
+                        "Input proxy: resampling channel ({} Hz) sent",
+                        context.stream_config.samplerate
+                    );
+                }
+                Err(err) => {
+                    log::error!("Input proxy: cannot send resampling channel: {}", err);
+                }
+            }
+        }
+        let Some(producer) = &mut self.producer else {
+            log::debug!("No resampling producer available, dropping input data");
             return;
+        };
+        if producer.correct_underflows() {
+            log::error!("Input proxy: underflow detected");
         }
-        let mut scratch = [0f32; 32];
-        let rate = self.output_sample_rate.load(Ordering::SeqCst) as f64
-            / context.stream_config.samplerate;
-        let out_len = (input.buffer.num_samples() as f64 * rate) as usize;
-        let mut scratch =
-            ArrayViewMut1::from(&mut scratch[..context.stream_config.channels.count()]);
-        let rate_recip = rate.recip();
-        for i in 0..out_len {
-            let in_ix = i as f64 / rate_recip;
-            let i = in_ix.floor() as usize;
-            let j = i + 1;
-            if j == out_len {
-                scratch.assign(&input.buffer.get_frame(i));
-            } else {
-                lerp(
-                    in_ix.fract() as _,
-                    input.buffer.get_frame(i),
-                    input.buffer.get_frame(j),
-                    scratch.view_mut(),
-                );
-            }
-            for sample in scratch.iter().copied() {
-                let _ = self.buffer.push(sample);
-            }
+
+        let mut scratch = [0f32; 32 * MAX_CHANNELS];
+        for slice in input.buffer.chunks(32) {
+            let len = slice.num_samples() * slice.num_channels();
+            debug_assert!(
+                slice.copy_into_interleaved(&mut scratch[..len]),
+                "Cannot fail: len is computed from slice itself"
+            );
+            producer.push_interleaved(&scratch[..len]);
         }
     }
-}
-
-/// Performs linear interpolation between two arrays of samples.
-///
-/// # Arguments
-/// * `x` - Interpolation factor between 0 and 1
-/// * `a` - First array of samples
-/// * `b` - Second array of samples
-/// * `out` - Output array for interpolated results
-fn lerp(x: f32, a: ArrayView1<f32>, b: ArrayView1<f32>, mut out: ArrayViewMut1<f32>) {
-    assert_eq!(out.len(), a.len());
-    assert_eq!(out.len(), b.len());
-    for i in 0..out.len() {
-        out[i] = lerpf(x, a[i], b[i]);
-    }
-}
-
-/// Performs linear interpolation between two float values.
-///
-/// # Arguments
-/// * `x` - Interpolation factor between 0 and 1
-/// * `a` - First value
-/// * `b` - Second value
-///
-/// # Returns
-/// The interpolated value
-fn lerpf(x: f32, a: f32, b: f32) -> f32 {
-    a + (b - a) * x
 }
 
 #[derive(Debug, Error)]
 #[error(transparent)]
 /// Represents errors that can occur during duplex stream operations.
 pub enum DuplexCallbackError<InputError, OutputError> {
+    #[error("No input channels given")]
+    NoInputChannels,
     /// An error occurred in the input stream
     InputError(InputError),
     /// An error occurred in the output stream
@@ -129,10 +144,12 @@ pub enum DuplexCallbackError<InputError, OutputError> {
 
 /// [`AudioOutputCallback`] implementation for which runs the provided [`AudioDuplexCallback`].
 pub struct DuplexCallback<Callback> {
-    input: rtrb::Consumer<f32>,
+    input: Option<fixed_resample::ResamplingCons<f32>>,
+    receive_consumer: rtrb::Consumer<fixed_resample::ResamplingCons<f32>>,
+    send_samplerate: rtrb::Producer<u32>,
     callback: Callback,
     storage: AudioBuffer<f32>,
-    output_sample_rate: Arc<AtomicU64>,
+    current_samplerate: u32,
 }
 
 impl<Callback> DuplexCallback<Callback> {
@@ -147,20 +164,49 @@ impl<Callback> DuplexCallback<Callback> {
 
 impl<Callback: AudioDuplexCallback> AudioOutputCallback for DuplexCallback<Callback> {
     fn on_output_data(&mut self, context: AudioCallbackContext, output: AudioOutput<f32>) {
-        self.output_sample_rate
-            .store(context.stream_config.samplerate as _, Ordering::SeqCst);
-        let num_channels = self.storage.num_channels();
-        let num_samples = output.buffer.num_samples().min(self.storage.num_samples());
-        for i in 0..num_samples {
-            let mut frame = self.storage.get_frame_mut(i);
-            for ch in 0..num_channels {
-                frame[ch] = self.input.pop().unwrap_or(0.0);
+        // If changed, send new output samplerate to input proxy
+        let samplerate = context.stream_config.samplerate as u32;
+        if samplerate != self.current_samplerate {
+            if let Ok(_) = self.send_samplerate.push(samplerate) {
+                log::debug!("Output samplerate changed to {}", samplerate);
+                self.current_samplerate = samplerate;
             }
         }
+
+        // Receive updated resample channel
+        if let Ok(input) = self.receive_consumer.pop() {
+            log::debug!(
+                "Output resample channel received ({}/{} Hz)",
+                input.out_sample_rate(),
+                input.in_sample_rate()
+            );
+            self.input.replace(input);
+        }
+
+        // Receive input from proxy
+        let num_samples = if let Some(input) = &mut self.input {
+            let discarded = input.discard_jitter(0.5);
+            if discarded > 0 {
+                log::warn!("Input jitter detected: {discarded} samples skipped");
+            }
+            let mut frame = [0f32; MAX_CHANNELS];
+            let num_channels = self.storage.num_channels();
+            let num_samples = self.storage.num_samples().min(input.available_frames());
+            for i in 0..num_samples {
+                let frame = &mut frame[..num_channels];
+                input.read_interleaved(frame);
+                self.storage.set_frame(i, &frame);
+            }
+            num_samples
+        } else {
+            0
+        };
+
         let input = AudioInput {
             timestamp: context.timestamp,
             buffer: self.storage.slice(..num_samples),
         };
+        // Run user callback
         self.callback.on_audio_data(context, input, output);
     }
 }
@@ -327,28 +373,23 @@ pub fn create_duplex_stream<
     >,
     DuplexCallbackError<InputDevice::Error, OutputDevice::Error>,
 > {
-    let (producer, consumer) = rtrb::RingBuffer::new(input_config.samplerate as _);
-    let output_sample_rate = Arc::new(AtomicU64::new(0));
+    let (proxy, send_samplerate, receive_consumer) = InputProxy::new();
     let input_handle = input_device
-        .create_input_stream(
-            input_config,
-            InputProxy {
-                buffer: producer,
-                output_sample_rate: output_sample_rate.clone(),
-            },
-        )
+        .create_input_stream(input_config, proxy)
         .map_err(DuplexCallbackError::InputError)?;
     let output_handle = output_device
         .create_output_stream(
             output_config,
             DuplexCallback {
-                input: consumer,
+                input: None,
+                send_samplerate,
+                receive_consumer,
                 callback,
                 storage: AudioBuffer::zeroed(
                     input_config.channels.count(),
                     input_config.samplerate as _,
                 ),
-                output_sample_rate,
+                current_samplerate: 0,
             },
         )
         .map_err(DuplexCallbackError::OutputError)?;
