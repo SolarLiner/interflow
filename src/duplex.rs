@@ -5,7 +5,6 @@ use crate::{
     AudioOutputCallback, AudioOutputDevice, AudioStreamHandle, SendEverywhereButOnWeb,
     StreamConfig,
 };
-use coreaudio::sys::MACH_SEND_INVALID_CONTEXT;
 use ndarray::{ArrayView1, ArrayViewMut1};
 use std::error::Error;
 use std::num::NonZeroUsize;
