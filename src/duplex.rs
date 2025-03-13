@@ -100,7 +100,8 @@ impl<Callback: AudioDuplexCallback> AudioOutputCallback for DuplexCallback<Callb
         self.output_sample_rate
             .store(context.stream_config.samplerate as _, Ordering::SeqCst);
         let num_channels = self.storage.num_channels();
-        for i in 0..output.buffer.num_samples() {
+        let num_samples = output.buffer.num_samples().min(self.storage.num_samples());
+        for i in 0..num_samples {
             let mut frame = self.storage.get_frame_mut(i);
             for ch in 0..num_channels {
                 frame[ch] = self.input.pop().unwrap_or(0.0);
@@ -108,7 +109,7 @@ impl<Callback: AudioDuplexCallback> AudioOutputCallback for DuplexCallback<Callb
         }
         let input = AudioInput {
             timestamp: context.timestamp,
-            buffer: self.storage.slice(..output.buffer.num_samples()),
+            buffer: self.storage.slice(..num_samples),
         };
         self.callback.on_audio_data(context, input, output);
     }
