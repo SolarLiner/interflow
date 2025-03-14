@@ -7,7 +7,7 @@ license = "MIT"
 
 [dependencies]
 duplicate = "1.0.0"
-log = "0.4.22"
+log = { version = "0.4.22", features = ["kv"] }
 ndarray = "0.15.6"
 oneshot = "0.1.8"
 thiserror = "1.0.63"

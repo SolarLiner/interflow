@@ -21,8 +21,8 @@ pub trait AudioDuplexCallback: 'static + SendEverywhereButOnWeb {
 }
 
 pub struct DuplexStream<Callback, Error> {
-    input_stream: Box<dyn AudioStreamHandle<InputProxy, Error = Error>>,
-    output_stream: Box<dyn AudioStreamHandle<DuplexCallback<Callback>, Error = Error>>,
+    input_stream: Box<dyn AudioStreamHandle<InputProxy, Error=Error>>,
+    output_stream: Box<dyn AudioStreamHandle<DuplexCallback<Callback>, Error=Error>>,
 }
 pub struct InputProxy {
     buffer: rtrb::Producer<f32>,
@@ -31,8 +31,12 @@ pub struct InputProxy {
 
 impl AudioInputCallback for InputProxy {
     fn on_input_data(&mut self, context: AudioCallbackContext, input: AudioInput<f32>) {
-        if self.buffer.slots() < input.buffer.num_samples() * input.buffer.num_channels() {
-            eprintln!("Not enough slots to buffer input");
+        log::trace!(num_samples = input.buffer.num_samples(), num_channels = input.buffer.num_channels(); 
+            "on_input_data");
+        let input_slots = input.buffer.num_samples() * input.buffer.num_channels();
+        if self.buffer.slots() < input_slots {
+            log::error!(buffer_slots=self.buffer.slots(), input_slots; "Input proxy buffer underrun");
+            return;
         }
         let mut scratch = [0f32; 32];
         let rate = self.output_sample_rate.load(Ordering::SeqCst) as f64
@@ -122,10 +126,10 @@ pub struct DuplexStreamHandle<InputHandle, OutputHandle> {
 }
 
 impl<
-        Callback,
-        InputHandle: AudioStreamHandle<InputProxy>,
-        OutputHandle: AudioStreamHandle<DuplexCallback<Callback>>,
-    > AudioStreamHandle<Callback> for DuplexStreamHandle<InputHandle, OutputHandle>
+    Callback,
+    InputHandle: AudioStreamHandle<InputProxy>,
+    OutputHandle: AudioStreamHandle<DuplexCallback<Callback>>,
+> AudioStreamHandle<Callback> for DuplexStreamHandle<InputHandle, OutputHandle>
 {
     type Error = DuplexCallbackError<InputHandle::Error, OutputHandle::Error>;
 
