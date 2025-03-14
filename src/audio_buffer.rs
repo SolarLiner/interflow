@@ -1,3 +1,24 @@
+//! Audio buffer types and traits for audio data manipulation.
+//!
+//! This module provides different types of audio buffers optimized for various use cases:
+//!
+//! - [`AudioBuffer`]: Owned buffer type for standard audio processing
+//! - [`AudioRef`]: Immutable reference buffer for reading audio data
+//! - [`AudioMut`]: Mutable reference buffer for modifying audio data  
+//! - [`AudioShared`]: Arc-backed shared buffer for multithreaded access
+//! - [`AudioCow`]: Copy-on-write buffer (avoid in audio callbacks)
+//!
+//! The buffers support both interleaved and non-interleaved data formats and provide
+//! convenient methods for:
+//!
+//! - Accessing individual channels and frames
+//! - Slicing and subsetting audio data
+//! - Computing audio metrics like RMS
+//! - Mixing and amplitude adjustments
+//! - Converting between different sample formats
+//!
+//! The buffers are built on top of ndarray for efficient multidimensional array operations.
+
 use std::collections::Bound;
 use std::fmt;
 use std::fmt::Formatter;
@@ -17,7 +38,7 @@ pub type AudioMut<'a, T> = AudioBufferBase<ViewRepr<&'a mut T>>;
 /// Arc-backed shared audio buffer type.
 pub type AudioShared<T> = AudioBufferBase<OwnedArcRepr<T>>;
 /// Copy-on-write audio buffer type. Should not be used within audio callbacks, as the copy will
-/// intrroduce allocations.
+/// introduce allocations.
 pub type AudioCow<'a, T> = AudioBufferBase<CowRepr<'a, T>>;
 
 type Storage<S> = ArrayBase<S, Ix2>;
@@ -26,6 +47,8 @@ type Storage<S> = ArrayBase<S, Ix2>;
 ///
 /// This type is made to make manipulation of audio data easier, and is agnostic in its storage
 /// representation, meaning that it can work with both interleaved and non-interleaved data.
+///
+/// Audio is stored as "row-per-channel"
 pub struct AudioBufferBase<S: RawData> {
     storage: Storage<S>,
 }
@@ -363,7 +386,15 @@ impl Sample for ty {
         (f * ty::MAX as fty) as ty
     }
     fn rms(it: impl Iterator<Item = Self>) -> Self::Float {
-        it.map(|t| t as fty).map(|f| f.powi(2)).sum::<fty>().sqrt()
+        let mut i = 0.0;
+        it.map(|t| t.into_float().powi(2))
+            .reduce(|a, b| {
+                let res = a * i / (i + 1.0) + b / (i + 1.0);
+                i += 1.0;
+                res
+            })
+            .unwrap_or(0.0)
+            .sqrt()
     }
 
     fn into_float(self) -> Self::Float {
@@ -383,21 +414,26 @@ impl Sample for ty {
 )]
 impl Sample for ty {
     type Float = fty;
-    const ZERO: Self = Self::MAX / 2;
+    const ZERO: Self = 1 + Self::MAX / 2;
 
     fn from_float(f: Self::Float) -> Self {
-        ((f * 0.5 + 0.5) * Self::MAX as Self::Float) as Self
+        ((f * 0.5 + 0.5) * (Self::MAX as Self::Float + 1.0)) as Self
     }
 
     fn rms(it: impl Iterator<Item = Self>) -> Self::Float {
-        it.map(Self::into_float)
-            .map(|x| x.powi(2))
-            .sum::<Self::Float>()
+        let mut i = 0.0;
+        it.map(|t| t.into_float().powi(2))
+            .reduce(|a, b| {
+                let res = a * i / (i + 1.0) + b / (i + 1.0);
+                i += 1.0;
+                res
+            })
+            .unwrap_or(0.0)
             .sqrt()
     }
 
     fn into_float(self) -> Self::Float {
-        let t = self as Self::Float / Self::MAX as Self::Float;
+        let t = self as Self::Float / (Self::MAX as Self::Float + 1.0);
         t * 2.0 - 1.0
     }
 
@@ -421,7 +457,15 @@ impl Sample for ty {
     }
 
     fn rms(it: impl Iterator<Item = Self>) -> Self::Float {
-        it.map(|x| x.powi(2)).sum::<Self>().sqrt()
+        let mut i = 0.0;
+        it.map(|t| t.powi(2))
+            .reduce(|a, b| {
+                let res = a * i / (i + 1.0) + b / (i + 1.0);
+                i += 1.0;
+                res
+            })
+            .unwrap_or(0.0)
+            .sqrt()
     }
 
     fn into_float(self) -> Self::Float {
@@ -488,5 +532,84 @@ impl<'a, S: DataMut<Elem: Sample>> AudioBufferBase<S> {
                 *a += b;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn create_test_buffer() -> AudioBuffer<f32> {
+        AudioBuffer::fill_with(2, 4, |ch, i| (ch * 4 + i) as f32)
+    }
+
+    #[test]
+    fn test_buffer_creation() {
+        let buf = create_test_buffer();
+        assert_eq!(buf.num_channels(), 2);
+        assert_eq!(buf.num_samples(), 4);
+
+        // Verify sample values
+        assert_eq!(buf.get_channel(0).to_vec(), vec![0.0, 1.0, 2.0, 3.0]);
+        assert_eq!(buf.get_channel(1).to_vec(), vec![4.0, 5.0, 6.0, 7.0]);
+    }
+
+    #[test]
+    fn test_buffer_views() {
+        let mut buf = create_test_buffer();
+
+        // Test immutable slice
+        let slice = buf.slice(1..3);
+        assert_eq!(slice.num_samples(), 2);
+        assert_eq!(slice.get_channel(0).to_vec(), vec![1.0, 2.0]);
+
+        // Test mutable slice
+        let mut slice = buf.slice_mut(1..3);
+        slice.get_channel_mut(0).fill(10.0);
+        assert_eq!(buf.get_channel(0).to_vec(), vec![0.0, 10.0, 10.0, 3.0]);
+    }
+
+    #[test]
+    fn test_sample_conversions() {
+        // Test i16 <-> f32 conversion
+        assert_eq!(i16::from_float(0.5), 16383);
+        assert!((i16::MAX.into_float() - 1.0).abs() < f32::EPSILON);
+
+        // Test u8 <-> f32 conversion
+        assert_eq!(u8::from_float(0.0), 128);
+        assert!((u8::ZERO.into_float()).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_rms() {
+        let mut buf = AudioBuffer::<f32>::zeroed(1, 4);
+        buf.get_channel_mut(0)
+            .assign(&ArrayView1::from(&[1.0, -1.0, 1.0, -1.0]));
+        let rms = buf.rms();
+        assert!((rms - 1.0).abs() < f32::EPSILON, "RMS is incorrect: {rms}");
+    }
+
+    #[test]
+    fn test_mixing() {
+        let mut buf1 = AudioBuffer::<f32>::fill(1, 4, 1.0);
+        let buf2 = AudioBuffer::<f32>::fill(1, 4, 0.5);
+
+        buf1.mix(buf2.as_ref(), 2.0);
+        assert_eq!(buf1.get_channel(0).to_vec(), vec![2.0, 2.0, 2.0, 2.0]);
+    }
+
+    #[test]
+    fn test_interleaved() {
+        let data = vec![1.0f32, 2.0, 3.0, 4.0];
+        let buf = AudioRef::from_interleaved(&data, 2).unwrap();
+
+        assert_eq!(buf.num_channels(), 2);
+        assert_eq!(buf.num_samples(), 2);
+        assert_eq!(buf.get_channel(0).to_vec(), vec![1.0, 3.0]);
+        assert_eq!(buf.get_channel(1).to_vec(), vec![2.0, 4.0]);
+
+        let mut out = vec![0.0f32; 4];
+        assert!(buf.copy_into_interleaved(&mut out));
+        assert_eq!(out, data);
     }
 }
