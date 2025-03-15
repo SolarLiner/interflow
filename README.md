@@ -14,10 +14,10 @@ and format conversion.
 ## Features
 
 - [x] Unified interface for platform-specific audio APIs.
-- [ ] Support for duplex audio (simultaneous input and output).
-- [ ] Separate input and output devices.
+- [x] Support for duplex audio (simultaneous input and output).
+- [x] Separate input and output devices.
 - [ ] Sample rate conversion.
-- [ ] Format conversion.
+- [x] Format conversion.
 
 ## Supported drivers
 
