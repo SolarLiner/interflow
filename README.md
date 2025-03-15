@@ -1,6 +1,6 @@
 # Interflow
 
-[![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](code_of_conduct.md)
+[![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-2.1-4baaaa.svg)](CODE_OF_CONDUCT.md)
 ![GitHub branch check runs](https://img.shields.io/github/check-runs/SolarLiner/interflow/main)
 ![GitHub issue custom search in repo](https://img.shields.io/github/issues-search/SolarLiner/interflow?query=is%3Aissue%20state%3Aopen&label=issues)
 ![Discord](https://img.shields.io/discord/590254806208217089?label=RustAudio%20on%20Discord)
