@@ -71,11 +71,7 @@ impl AudioInputDevice for AlsaDevice {
         stream_config: StreamConfig,
         callback: Callback,
     ) -> Result<Self::StreamHandle<Callback>, Self::Error> {
-        Ok(AlsaStream::new_input(
-            self.name.clone(),
-            stream_config,
-            callback,
-        ))
+        AlsaStream::new_input(self.name.clone(), stream_config, callback)
     }
 }
 
@@ -91,11 +87,7 @@ impl AudioOutputDevice for AlsaDevice {
         stream_config: StreamConfig,
         callback: Callback,
     ) -> Result<Self::StreamHandle<Callback>, Self::Error> {
-        Ok(AlsaStream::new_output(
-            self.name.clone(),
-            stream_config,
-            callback,
-        ))
+        AlsaStream::new_output(self.name.clone(), stream_config, callback)
     }
 }
 

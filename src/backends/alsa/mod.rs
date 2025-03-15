@@ -19,6 +19,7 @@ mod device;
 mod input;
 mod output;
 mod stream;
+mod triggerfd;
 
 /// Type of errors from using the ALSA backend.
 #[derive(Debug, Error)]
@@ -27,6 +28,8 @@ pub enum AlsaError {
     /// Error originates from ALSA itself.
     #[error("{0}")]
     BackendError(#[from] alsa::Error),
+    #[error("I/O error: {0}")]
+    IoError(#[from] nix::Error),
 }
 
 /// ALSA driver type. ALSA is statically available without client configuration, therefore this type
