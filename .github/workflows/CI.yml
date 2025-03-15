@@ -22,7 +22,7 @@ jobs:
         toolchain: 1.85
         default: true
         override: true
-        components: clippy
+        components: rustfmt
     - name: Run rustfmt
       run: cargo fmt -- --check
   test:
