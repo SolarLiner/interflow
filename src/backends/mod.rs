@@ -113,3 +113,36 @@ pub fn default_output_device() -> impl AudioOutputDevice {
     #[cfg(os_wasapi)]
     return default_output_device_from(&wasapi::WasapiDriver);
 }
+
+/// Default duplex device from the default driver of this platform.
+///
+/// "Default" here means both in terms of platform support but also can include runtime selection.
+/// Therefore, it is better to use this method directly rather than first getting the default
+/// driver from [`default_driver`].
+#[allow(clippy::non_minimal_cfg)]
+#[allow(clippy::needless_return)]
+#[cfg(any(os_alsa))]
+pub fn default_duplex_device() -> impl crate::device::AudioDuplexDevice {
+    #[cfg(os_alsa)]
+    return default_duplex_device_from(&alsa::AlsaDriver);
+}
+
+/// Returns the default duplex device for the given audio driver.
+///
+/// The default device is usually the one the user has selected in its system settings.
+pub fn default_duplex_device_from<D: crate::driver::AudioDuplexDriver>(driver: &D) -> D::DuplexDevice
+where
+    D::Device: AudioInputDevice + AudioOutputDevice,
+{
+    driver
+        .default_duplex_device()
+        .expect("Audio driver error")
+        .unwrap_or_else(|| {
+            driver
+                .device_from_input_output(
+                    default_input_device_from(driver),
+                    default_output_device_from(driver),
+                )
+                .expect("Audio driver error")
+        })
+}
