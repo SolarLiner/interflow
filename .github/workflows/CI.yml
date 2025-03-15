@@ -10,6 +10,21 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install dependencies (Linux)
+      run: sudo apt install libasound2-dev
+    - name: Install Rust 1.85
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: 1.85
+        default: true
+        override: true
+        components: rustfmt
+    - name: Run rustfmt
+      run: cargo fmt -- --check
   test:
     strategy:
       fail-fast: false
@@ -22,19 +37,17 @@ jobs:
     - name: Install dependencies (Linux)
       if: ${{matrix.os == 'ubuntu-latest' }}
       run: sudo apt install libasound2-dev
-    - name: Install Rust 1.80
+    - name: Install Rust ${{ matrix.rust }}
       uses: actions-rs/toolchain@v1
       with:
         toolchain: ${{ matrix.rust }}
         default: true
         override: true
-        components: rustfmt, clippy
+        components: clippy
     - uses: LoliGothick/clippy-check@master
       continue-on-error: true
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
-    - name: Run rustfmt
-      run: cargo fmt -- --check
     - name: Run clippy
       uses: clechasseur/rs-clippy-check@v4
       with:
