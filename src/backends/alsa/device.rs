@@ -155,7 +155,7 @@ impl AlsaDevice {
         swp.set_start_threshold(hwp.get_buffer_size()?)?;
         self.pcm.sw_params(&swp)?;
         log::debug!("Apply config: swp {swp:#?}");
-        
+
         Ok((hwp, swp, io))
     }
 

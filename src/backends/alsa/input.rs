@@ -1,16 +1,20 @@
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use alsa::pcm;
-use std::time::Duration;
-use crate::{AudioCallbackContext, AudioInput, AudioInputCallback, StreamConfig};
 use crate::audio_buffer::AudioRef;
-use crate::backends::alsa::stream::AlsaStream;
 use crate::backends::alsa::device::AlsaDevice;
+use crate::backends::alsa::stream::AlsaStream;
 use crate::channel_map::{Bitset, ChannelMap32};
 use crate::prelude::Timestamp;
+use crate::{AudioCallbackContext, AudioInput, AudioInputCallback, StreamConfig};
+use alsa::pcm;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
 
 impl<Callback: 'static + Send + AudioInputCallback> AlsaStream<Callback> {
-    pub(super) fn new_input(name: String, stream_config: StreamConfig, mut callback: Callback) -> Self {
+    pub(super) fn new_input(
+        name: String,
+        stream_config: StreamConfig,
+        mut callback: Callback,
+    ) -> Self {
         let eject_signal = Arc::new(AtomicBool::new(false));
         let join_handle = std::thread::spawn({
             let eject_signal = eject_signal.clone();
@@ -43,14 +47,14 @@ impl<Callback: 'static + Send + AudioInputCallback> AlsaStream<Callback> {
                         log::debug!("Eject requested, returning ownership of callback");
                         break Ok(callback);
                     }
-                    
+
                     let frames = device.pcm.avail_update()? as usize;
                     if frames == 0 {
                         // TODO: Polling for proper wakeup
                         std::thread::yield_now();
                         continue;
                     }
-                    
+
                     log::debug!("Frames available: {frames}");
                     let frames = std::cmp::min(frames, period_size);
                     let len = frames * num_channels;

@@ -1,8 +1,8 @@
+use crate::backends::alsa::AlsaError;
+use crate::{AudioInputDevice, AudioOutputDevice, AudioStreamHandle};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
-use crate::{AudioInputDevice, AudioOutputDevice, AudioStreamHandle};
-use crate::backends::alsa::AlsaError;
 
 /// Type of ALSA streams.
 ///

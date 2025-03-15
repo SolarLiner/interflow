@@ -21,8 +21,8 @@ pub trait AudioDuplexCallback: 'static + SendEverywhereButOnWeb {
 }
 
 pub struct DuplexStream<Callback, Error> {
-    input_stream: Box<dyn AudioStreamHandle<InputProxy, Error=Error>>,
-    output_stream: Box<dyn AudioStreamHandle<DuplexCallback<Callback>, Error=Error>>,
+    input_stream: Box<dyn AudioStreamHandle<InputProxy, Error = Error>>,
+    output_stream: Box<dyn AudioStreamHandle<DuplexCallback<Callback>, Error = Error>>,
 }
 pub struct InputProxy {
     buffer: rtrb::Producer<f32>,
@@ -31,7 +31,7 @@ pub struct InputProxy {
 
 impl AudioInputCallback for InputProxy {
     fn on_input_data(&mut self, context: AudioCallbackContext, input: AudioInput<f32>) {
-        log::trace!(num_samples = input.buffer.num_samples(), num_channels = input.buffer.num_channels(); 
+        log::trace!(num_samples = input.buffer.num_samples(), num_channels = input.buffer.num_channels();
             "on_input_data");
         let input_slots = input.buffer.num_samples() * input.buffer.num_channels();
         if self.buffer.slots() < input_slots {
@@ -126,10 +126,10 @@ pub struct DuplexStreamHandle<InputHandle, OutputHandle> {
 }
 
 impl<
-    Callback,
-    InputHandle: AudioStreamHandle<InputProxy>,
-    OutputHandle: AudioStreamHandle<DuplexCallback<Callback>>,
-> AudioStreamHandle<Callback> for DuplexStreamHandle<InputHandle, OutputHandle>
+        Callback,
+        InputHandle: AudioStreamHandle<InputProxy>,
+        OutputHandle: AudioStreamHandle<DuplexCallback<Callback>>,
+    > AudioStreamHandle<Callback> for DuplexStreamHandle<InputHandle, OutputHandle>
 {
     type Error = DuplexCallbackError<InputHandle::Error, OutputHandle::Error>;
 

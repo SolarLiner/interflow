@@ -5,20 +5,19 @@
 //! (PulseAudio, PipeWire) offer ALSA-compatible APIs so that older software can still access the
 //! audio devices through them.
 
-use std::borrow::Cow;
-use alsa::device_name::HintIter;
-use thiserror::Error;
-use device::AlsaDevice;
 use crate::channel_map::Bitset;
 use crate::{
-    AudioDevice, AudioDriver, AudioInputCallback,
-    AudioInputDevice, AudioOutputCallback, AudioOutputDevice, AudioStreamHandle
-    , DeviceType,
+    AudioDevice, AudioDriver, AudioInputCallback, AudioInputDevice, AudioOutputCallback,
+    AudioOutputDevice, AudioStreamHandle, DeviceType,
 };
+use alsa::device_name::HintIter;
+use device::AlsaDevice;
+use std::borrow::Cow;
+use thiserror::Error;
 
-mod output;
-mod input;
 mod device;
+mod input;
+mod output;
 mod stream;
 
 /// Type of errors from using the ALSA backend.
@@ -54,4 +53,3 @@ impl AudioDriver for AlsaDriver {
             .filter_map(|hint| AlsaDevice::new(hint.name.as_ref()?, hint.direction?).ok()))
     }
 }
-
