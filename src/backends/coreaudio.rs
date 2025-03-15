@@ -176,12 +176,12 @@ impl AudioDevice for CoreAudioDevice {
     }
 }
 
-fn input_stream_format(sample_rate: f64) -> StreamFormat {
+fn input_stream_format(sample_rate: f64, channels: ChannelMap32) -> StreamFormat {
     StreamFormat {
         sample_rate,
         sample_format: SampleFormat::I16,
-        flags: LinearPcmFlags::IS_NON_INTERLEAVED | LinearPcmFlags::IS_SIGNED_INTEGER,
-        channels: 1,
+        flags: LinearPcmFlags::IS_SIGNED_INTEGER,
+        channels: channels.count() as _,
     }
 }
 
@@ -269,28 +269,33 @@ impl<Callback: 'static + Send + AudioInputCallback> CoreAudioStream<Callback> {
         callback: Callback,
     ) -> Result<Self, CoreAudioError> {
         let mut audio_unit = audio_unit_from_device_id(device_id, true)?;
-        let asbd = input_stream_format(stream_config.samplerate).to_asbd();
+        let asbd = input_stream_format(stream_config.samplerate, stream_config.channels).to_asbd();
         audio_unit.set_property(
             kAudioUnitProperty_StreamFormat,
             Scope::Output,
             Element::Input,
             Some(&asbd),
         )?;
-        let mut buffer = AudioBuffer::zeroed(1, stream_config.samplerate as _);
+        let mut buffer = AudioBuffer::zeroed(
+            stream_config.channels.count(),
+            stream_config.samplerate as _,
+        );
 
         // Set up the callback retrieval process, without needing to make the callback `Sync`
         let (tx, rx) = oneshot::channel::<oneshot::Sender<Callback>>();
         let mut callback = Some(callback);
-        audio_unit.set_input_callback(move |mut args: Args<data::NonInterleaved<i16>>| {
+        audio_unit.set_input_callback(move |args: Args<data::Interleaved<i16>>| {
             if let Ok(sender) = rx.try_recv() {
                 sender.send(callback.take().unwrap()).unwrap();
                 return Err(());
             }
             let mut buffer = buffer.slice_mut(..args.num_frames);
-            for (input, mut inner) in args.data.channels().zip(buffer.channels_mut()) {
-                for (s1, s2) in input.iter().zip(inner.iter_mut()) {
-                    *s2 = s1.into_float();
-                }
+            for (out, inp) in buffer
+                .as_interleaved_mut()
+                .iter_mut()
+                .zip(args.data.buffer.iter())
+            {
+                *out = inp.into_float();
             }
             let timestamp =
                 Timestamp::from_count(stream_config.samplerate, args.time_stamp.mSampleTime as _);
@@ -306,11 +311,6 @@ impl<Callback: 'static + Send + AudioInputCallback> CoreAudioStream<Callback> {
                     },
                     input,
                 );
-                for (input, inner) in args.data.channels_mut().zip(buffer.channels()) {
-                    for (s1, s2) in input.iter_mut().zip(inner.iter()) {
-                        *s1 = i16::from_float(*s2);
-                    }
-                }
             }
             Ok(())
         })?;
