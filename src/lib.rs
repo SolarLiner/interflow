@@ -5,6 +5,7 @@ use std::borrow::Cow;
 
 use crate::audio_buffer::{AudioMut, AudioRef};
 use crate::channel_map::ChannelMap32;
+use crate::duplex::AudioDuplexCallback;
 use crate::timestamp::Timestamp;
 
 pub mod audio_buffer;
@@ -36,6 +37,21 @@ pub trait AudioDriver {
 
     /// List all devices available through this audio driver.
     fn list_devices(&self) -> Result<impl IntoIterator<Item = Self::Device>, Self::Error>;
+}
+
+pub trait AudioDuplexDriver: AudioDriver {
+    type DuplexDevice: AudioDuplexDevice;
+    fn default_duplex_device(&self) -> Result<Option<Self::DuplexDevice>, Self::Error>;
+
+    fn list_duplex_devices(
+        &self,
+    ) -> Result<impl IntoIterator<Item = Self::DuplexDevice>, Self::Error>;
+
+    fn device_from_input_output(
+        &self,
+        input: Self::Device,
+        output: Self::Device,
+    ) -> Result<Self::DuplexDevice, Self::Error>;
 }
 
 /// Devices are either inputs, outputs, or provide both at the same time.
@@ -93,10 +109,6 @@ pub trait AudioDevice {
     /// Device type. Either input, output, or duplex.
     fn device_type(&self) -> DeviceType;
 
-    /// Iterator of the available channels in this device. Channel indices are used when
-    /// specifying which channels to open when creating an audio stream.
-    fn channel_map(&self) -> impl IntoIterator<Item = Channel>;
-
     /// Not all configuration values make sense for a particular device, and this method tests a
     /// configuration to see if it can be used in an audio stream.
     fn is_config_supported(&self, config: &StreamConfig) -> bool;
@@ -107,7 +119,8 @@ pub trait AudioDevice {
 }
 
 /// Marker trait for values which are [Send] everywhere but on the web (as WASM does not yet have
-/// web targets.
+/// proper threads, and implementation of audio engines on WASM are either separate modules or a single module in a
+/// push configuration).
 ///
 /// This should only be used to define the traits and should not be relied upon in external code.
 ///
@@ -118,7 +131,8 @@ pub trait SendEverywhereButOnWeb: 'static + Send {}
 impl<T: 'static + Send> SendEverywhereButOnWeb for T {}
 
 /// Marker trait for values which are [Send] everywhere but on the web (as WASM does not yet have
-/// web targets.
+/// proper threads, and implementation of audio engines on WASM are either separate modules or a single module in a
+/// push configuration).
 ///
 /// This should only be used to define the traits and should not be relied upon in external code.
 ///
@@ -133,10 +147,15 @@ impl<T> SendEverywhereButOnWeb for T {}
 /// Input devices require a [`AudioInputCallback`] which receives the audio data from the input
 /// device, and processes it.
 pub trait AudioInputDevice: AudioDevice {
+    /// Map of input channels. This can be used to get the index of channels to open when creating a stream.
+    fn input_channel_map(&self) -> impl Iterator<Item = Channel>;
+
     /// Type of the resulting stream. This stream can be used to control the audio processing
     /// externally, or stop it completely and give back ownership of the callback with
     /// [`AudioStreamHandle::eject`].
     type StreamHandle<Callback: AudioInputCallback>: AudioStreamHandle<Callback>;
+
+    /// Return the default configuration for an input stream.
     fn default_input_config(&self) -> Result<StreamConfig, Self::Error>;
 
     /// Creates an input stream with the provided stream configuration. For this call to be
@@ -151,6 +170,7 @@ pub trait AudioInputDevice: AudioDevice {
         callback: Callback,
     ) -> Result<Self::StreamHandle<Callback>, Self::Error>;
 
+    /// Creates an input stream from the default configuration given by [`Self::default_input_configuration`].
     fn default_input_stream<Callback: SendEverywhereButOnWeb + AudioInputCallback>(
         &self,
         callback: Callback,
@@ -164,10 +184,15 @@ pub trait AudioInputDevice: AudioDevice {
 /// Output devices require a [`AudioOutputCallback`] which receives the audio data from the output
 /// device, and processes it.
 pub trait AudioOutputDevice: AudioDevice {
+    /// Map of output channels. This can be used to get the index of channels to open when creating a stream.
+    fn output_channel_map(&self) -> impl Iterator<Item = Channel>;
+
     /// Type of the resulting stream. This stream can be used to control the audio processing
     /// externally, or stop it completely and give back ownership of the callback with
     /// [`AudioStreamHandle::eject`].
     type StreamHandle<Callback: AudioOutputCallback>: AudioStreamHandle<Callback>;
+
+    /// Return the default configuration for an output stream.
     fn default_output_config(&self) -> Result<StreamConfig, Self::Error>;
 
     /// Creates an output stream with the provided stream configuration. For this call to be
@@ -182,11 +207,45 @@ pub trait AudioOutputDevice: AudioDevice {
         callback: Callback,
     ) -> Result<Self::StreamHandle<Callback>, Self::Error>;
 
+    /// Creates an output stream from the default configuration given by [`Self::default_output_configuration`].
     fn default_output_stream<Callback: SendEverywhereButOnWeb + AudioOutputCallback>(
         &self,
         callback: Callback,
     ) -> Result<Self::StreamHandle<Callback>, Self::Error> {
         self.create_output_stream(self.default_output_config()?, callback)
+    }
+}
+
+/// Trait for types which can provide duplex streams.
+///
+/// Output devices require a [`AudioDuplexCallback`] which receives the audio data from the device, and processes it.
+pub trait AudioDuplexDevice: AudioDevice {
+    /// Type of the resulting stream. This stream can be used to control the audio processing
+    /// externally, or stop it completely and give back ownership of the callback with
+    /// [`AudioStreamHandle::eject`].
+    type StreamHandle<Callback: AudioDuplexCallback>: AudioStreamHandle<Callback>;
+
+    /// Return the default configuration for a duplex stream.
+    fn default_duplex_config(&self) -> Result<StreamConfig, Self::Error>;
+
+    /// Creates a duplex stream with the provided stream configuration. For this call to be
+    /// valid, [`AudioDevice::is_config_supported`] should have returned `true` on the provided
+    /// configuration.
+    ///
+    /// A duplex callback is required to process the audio, whose ownership will be transferred
+    /// to the audio stream.
+    fn create_duplex_stream<Callback: SendEverywhereButOnWeb + AudioDuplexCallback>(
+        &self,
+        config: StreamConfig,
+        callback: Callback,
+    ) -> Result<<Self as AudioDuplexDevice>::StreamHandle<Callback>, Self::Error>;
+
+    /// Creates a duplex stream from the default configuration given by [`Self::default_duplex_configuration`].
+    fn default_duplex_stream<Callback: SendEverywhereButOnWeb + AudioDuplexCallback>(
+        &self,
+        callback: Callback,
+    ) -> Result<<Self as AudioDuplexDevice>::StreamHandle<Callback>, Self::Error> {
+        self.create_duplex_stream(self.default_duplex_config()?, callback)
     }
 }
 
@@ -197,7 +256,7 @@ pub trait AudioStreamHandle<Callback> {
 
     /// Eject the stream, returning ownership of the callback.
     ///
-    /// An error can occur when an irrecoverable error has occured and ownership has been lost
+    /// An error can occur when an irrecoverable error has occurred and ownership has been lost
     /// already.
     fn eject(self) -> Result<Callback, Self::Error>;
 }

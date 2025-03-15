@@ -5,7 +5,10 @@
 //! Each backend is provided in its own submodule. Types should be public so that the user isn't
 //! limited to going through the main API if they want to choose a specific backend.
 
-use crate::{AudioDriver, AudioInputDevice, AudioOutputDevice, DeviceType};
+use crate::{
+    AudioDriver, AudioDuplexDevice, AudioDuplexDriver, AudioInputDevice, AudioOutputDevice,
+    DeviceType,
+};
 
 #[cfg(unsupported)]
 compile_error!("Unsupported platform (supports ALSA, CoreAudio, and WASAPI)");
@@ -50,13 +53,12 @@ pub fn default_driver() -> impl AudioDriver {
 /// The default device is usually the one the user has selected in its system settings.
 pub fn default_input_device_from<Driver: AudioDriver>(driver: &Driver) -> Driver::Device
 where
-    Driver::Device: Clone + AudioInputDevice,
+    Driver::Device: AudioInputDevice,
 {
     driver
         .default_device(DeviceType::Input)
         .expect("Audio driver error")
         .expect("No default device found")
-        .clone()
 }
 
 /// Default input device from the default driver for this platform.
@@ -80,13 +82,12 @@ pub fn default_input_device() -> impl AudioInputDevice {
 /// The default device is usually the one the user has selected in its system settings.
 pub fn default_output_device_from<Driver: AudioDriver>(driver: &Driver) -> Driver::Device
 where
-    Driver::Device: Clone + AudioOutputDevice,
+    Driver::Device: AudioOutputDevice,
 {
     driver
         .default_device(DeviceType::Output)
         .expect("Audio driver error")
         .expect("No default device found")
-        .clone()
 }
 
 /// Default output device from the default driver for this platform.
@@ -103,4 +104,37 @@ pub fn default_output_device() -> impl AudioOutputDevice {
     return default_output_device_from(&coreaudio::CoreAudioDriver);
     #[cfg(os_wasapi)]
     return default_output_device_from(&wasapi::WasapiDriver);
+}
+
+/// Default duplex device from the default driver of this platform.
+///
+/// "Default" here means both in terms of platform support but also can include runtime selection.
+/// Therefore, it is better to use this method directly rather than first getting the default
+/// driver from [`default_driver`].
+#[allow(clippy::non_minimal_cfg)]
+#[allow(clippy::needless_return)]
+#[cfg(any(os_alsa))]
+pub fn default_duplex_device() -> impl AudioDuplexDevice {
+    #[cfg(os_alsa)]
+    return default_duplex_device_from(&alsa::AlsaDriver);
+}
+
+/// Returns the default duplex device for the given audio driver.
+///
+/// The default device is usually the one the user has selected in its system settings.
+pub fn default_duplex_device_from<D: AudioDuplexDriver>(driver: &D) -> D::DuplexDevice
+where
+    D::Device: AudioInputDevice + AudioOutputDevice,
+{
+    driver
+        .default_duplex_device()
+        .expect("Audio driver error")
+        .unwrap_or_else(|| {
+            driver
+                .device_from_input_output(
+                    default_input_device_from(driver),
+                    default_output_device_from(driver),
+                )
+                .expect("Audio driver error")
+        })
 }

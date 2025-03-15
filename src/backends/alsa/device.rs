@@ -1,20 +1,38 @@
 use crate::backends::alsa::stream::AlsaStream;
 use crate::backends::alsa::AlsaError;
+use crate::duplex::AudioDuplexCallback;
 use crate::{
-    AudioDevice, AudioInputCallback, AudioInputDevice, AudioOutputCallback, AudioOutputDevice,
-    Channel, DeviceType, StreamConfig,
+    AudioDevice, AudioDuplexDevice, AudioInputCallback, AudioInputDevice, AudioOutputCallback,
+    AudioOutputDevice, Channel, DeviceType, SendEverywhereButOnWeb, StreamConfig,
 };
 use alsa::{pcm, PCM};
 use std::borrow::Cow;
 use std::fmt;
-use std::sync::Arc;
+use std::rc::Rc;
 
 /// Type of ALSA devices.
 #[derive(Clone)]
 pub struct AlsaDevice {
-    pub(super) pcm: Arc<PCM>,
+    pub(super) pcm: Rc<PCM>,
     pub(super) name: String,
     pub(super) direction: alsa::Direction,
+}
+
+impl AlsaDevice {
+    fn channel_map(&self, requested_direction: alsa::Direction) -> impl Iterator<Item = Channel> {
+        let max_channels = if self.direction == requested_direction {
+            self.pcm
+                .hw_params_current()
+                .and_then(|hwp| hwp.get_channels_max())
+                .unwrap_or(0)
+        } else {
+            0
+        };
+        (0..max_channels as usize).map(|i| Channel {
+            index: i,
+            name: Cow::Owned(format!("Channel {}", i)),
+        })
+    }
 }
 
 impl fmt::Debug for AlsaDevice {
@@ -40,10 +58,6 @@ impl AudioDevice for AlsaDevice {
         }
     }
 
-    fn channel_map(&self) -> impl IntoIterator<Item = Channel> {
-        []
-    }
-
     fn is_config_supported(&self, config: &StreamConfig) -> bool {
         self.get_hwp(config)
             .inspect_err(|err| {
@@ -60,6 +74,10 @@ impl AudioDevice for AlsaDevice {
 }
 
 impl AudioInputDevice for AlsaDevice {
+    fn input_channel_map(&self) -> impl Iterator<Item = Channel> {
+        self.channel_map(alsa::Direction::Capture)
+    }
+
     type StreamHandle<Callback: AudioInputCallback> = AlsaStream<Callback>;
 
     fn default_input_config(&self) -> Result<StreamConfig, Self::Error> {
@@ -76,6 +94,10 @@ impl AudioInputDevice for AlsaDevice {
 }
 
 impl AudioOutputDevice for AlsaDevice {
+    fn output_channel_map(&self) -> impl Iterator<Item = Channel> {
+        self.channel_map(alsa::Direction::Playback)
+    }
+
     type StreamHandle<Callback: AudioOutputCallback> = AlsaStream<Callback>;
 
     fn default_output_config(&self) -> Result<StreamConfig, Self::Error> {
@@ -99,7 +121,7 @@ impl AlsaDevice {
             DeviceType::Output => alsa::Direction::Playback,
             _ => return Ok(None),
         };
-        let pcm = Arc::new(PCM::new("default", direction, true)?);
+        let pcm = Rc::new(PCM::new("default", direction, true)?);
         Ok(Some(Self {
             pcm,
             direction,
@@ -108,8 +130,8 @@ impl AlsaDevice {
     }
 
     pub(super) fn new(name: &str, direction: alsa::Direction) -> Result<Self, alsa::Error> {
-        let pcm = PCM::new(name, direction, true)?;
-        let pcm = Arc::new(pcm);
+        log::info!("Opening device: {name}, direction {direction:?}");
+        let pcm = Rc::new(PCM::new(name, direction, true)?);
         Ok(Self {
             name: name.to_string(),
             direction,
@@ -122,11 +144,12 @@ impl AlsaDevice {
         hwp.set_channels(config.channels as _)?;
         hwp.set_rate(config.samplerate as _, alsa::ValueOr::Nearest)?;
         if let Some(min) = config.buffer_size_range.0 {
-            hwp.set_buffer_size_min(min as _)?;
+            hwp.set_buffer_size_min(min as pcm::Frames * 2)?;
         }
         if let Some(max) = config.buffer_size_range.1 {
-            hwp.set_buffer_size_max(max as _)?;
+            hwp.set_buffer_size_max(max as pcm::Frames * 2)?;
         }
+        hwp.set_periods(2, alsa::ValueOr::Nearest)?;
         hwp.set_format(pcm::Format::float())?;
         hwp.set_access(pcm::Access::RWInterleaved)?;
         Ok(hwp)
@@ -144,11 +167,22 @@ impl AlsaDevice {
 
         log::debug!("Apply config: hwp {hwp:#?}");
 
+        swp.set_avail_min(hwp.get_period_size()?)?;
         swp.set_start_threshold(hwp.get_buffer_size()?)?;
         self.pcm.sw_params(&swp)?;
         log::debug!("Apply config: swp {swp:#?}");
 
         Ok((hwp, swp, io))
+    }
+
+    pub(super) fn ensure_state(&self, hwp: &pcm::HwParams) -> Result<bool, AlsaError> {
+        match self.pcm.state() {
+            pcm::State::Suspended if hwp.can_resume() => self.pcm.resume()?,
+            pcm::State::Suspended => self.pcm.prepare()?,
+            pcm::State::Paused => return Ok(true),
+            _ => {}
+        }
+        Ok(false)
     }
 
     fn default_config(&self) -> Result<StreamConfig, AlsaError> {
@@ -161,5 +195,83 @@ impl AlsaDevice {
             buffer_size_range: (None, None),
             exclusive: false,
         })
+    }
+}
+
+pub struct AlsaDuplexDevice {
+    pub(super) input: AlsaDevice,
+    pub(super) output: AlsaDevice,
+}
+
+impl AudioDevice for AlsaDuplexDevice {
+    type Error = AlsaError;
+
+    fn name(&self) -> Cow<str> {
+        Cow::Owned(format!("{} / {}", self.input.name(), self.output.name()))
+    }
+
+    fn device_type(&self) -> DeviceType {
+        DeviceType::Duplex
+    }
+
+    fn is_config_supported(&self, config: &StreamConfig) -> bool {
+        let Ok((hwp, _, _)) = self.output.apply_config(config) else {
+            return false;
+        };
+        let Ok(period) = hwp.get_period_size() else {
+            return false;
+        };
+        let period = period as usize;
+        self.input
+            .apply_config(&StreamConfig {
+                buffer_size_range: (Some(period), Some(period)),
+                ..*config
+            })
+            .is_ok()
+    }
+
+    fn enumerate_configurations(&self) -> Option<impl IntoIterator<Item = StreamConfig>> {
+        Some(
+            self.output
+                .enumerate_configurations()?
+                .into_iter()
+                .filter(|config| self.is_config_supported(config)),
+        )
+    }
+}
+
+impl AudioDuplexDevice for AlsaDuplexDevice {
+    type StreamHandle<Callback: AudioDuplexCallback> = AlsaStream<Callback>;
+
+    fn default_duplex_config(&self) -> Result<StreamConfig, Self::Error> {
+        self.output.default_output_config()
+    }
+
+    fn create_duplex_stream<Callback: SendEverywhereButOnWeb + AudioDuplexCallback>(
+        &self,
+        config: StreamConfig,
+        callback: Callback,
+    ) -> Result<<Self as AudioDuplexDevice>::StreamHandle<Callback>, Self::Error> {
+        AlsaStream::new_duplex(
+            config,
+            self.input.name.clone(),
+            self.output.name.clone(),
+            callback,
+        )
+    }
+}
+
+impl AlsaDuplexDevice {
+    /// Create a new duplex device from an input and output device.
+    pub fn new(input: AlsaDevice, output: AlsaDevice) -> Self {
+        Self { input, output }
+    }
+
+    /// Create a full-duplex device from the given name.
+    pub fn full_duplex(name: &str) -> Result<Self, AlsaError> {
+        Ok(Self::new(
+            AlsaDevice::new(name, alsa::Direction::Capture)?,
+            AlsaDevice::new(name, alsa::Direction::Playback)?,
+        ))
     }
 }
