@@ -1,9 +1,8 @@
 use crate::backends::alsa::stream::AlsaStream;
 use crate::backends::alsa::AlsaError;
-use crate::{
-    AudioDevice, AudioInputCallback, AudioInputDevice, AudioOutputCallback, AudioOutputDevice,
-    Channel, DeviceType, StreamConfig,
-};
+use crate::device::Channel;
+use crate::device::{AudioDevice, AudioInputDevice, AudioOutputDevice, DeviceType};
+use crate::stream::{AudioInputCallback, AudioOutputCallback, StreamConfig};
 use alsa::{pcm, PCM};
 use std::borrow::Cow;
 use std::fmt;
@@ -40,10 +39,6 @@ impl AudioDevice for AlsaDevice {
         }
     }
 
-    fn channel_map(&self) -> impl IntoIterator<Item = Channel> {
-        []
-    }
-
     fn is_config_supported(&self, config: &StreamConfig) -> bool {
         self.get_hwp(config)
             .inspect_err(|err| {
@@ -60,6 +55,10 @@ impl AudioDevice for AlsaDevice {
 }
 
 impl AudioInputDevice for AlsaDevice {
+    fn input_channel_map(&self) -> impl Iterator<Item = Channel> {
+        [].into_iter()
+    }
+
     type StreamHandle<Callback: AudioInputCallback> = AlsaStream<Callback>;
 
     fn default_input_config(&self) -> Result<StreamConfig, Self::Error> {
@@ -76,6 +75,10 @@ impl AudioInputDevice for AlsaDevice {
 }
 
 impl AudioOutputDevice for AlsaDevice {
+    fn output_channel_map(&self) -> impl Iterator<Item = Channel> {
+        [].into_iter()
+    }
+
     type StreamHandle<Callback: AudioOutputCallback> = AlsaStream<Callback>;
 
     fn default_output_config(&self) -> Result<StreamConfig, Self::Error> {

@@ -2,7 +2,8 @@ use crate::audio_buffer::AudioMut;
 use crate::backends::alsa::stream::AlsaStream;
 use crate::backends::alsa::AlsaError;
 use crate::prelude::alsa::device::AlsaDevice;
-use crate::{AudioCallbackContext, AudioOutput, AudioOutputCallback, StreamConfig};
+use crate::stream::AudioOutput;
+use crate::stream::{AudioCallbackContext, AudioOutputCallback, StreamConfig};
 
 impl<Callback: 'static + Send + AudioOutputCallback> AlsaStream<Callback> {
     pub(super) fn new_output(

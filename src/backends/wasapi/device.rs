@@ -1,11 +1,10 @@
 use super::{error, stream};
 use crate::backends::wasapi::stream::WasapiStream;
 use crate::channel_map::Bitset;
+use crate::device::Channel;
+use crate::device::{AudioDevice, AudioInputDevice, AudioOutputDevice, DeviceType};
 use crate::prelude::wasapi::util::WasapiMMDevice;
-use crate::{
-    AudioDevice, AudioInputCallback, AudioInputDevice, AudioOutputCallback, AudioOutputDevice,
-    Channel, DeviceType, StreamConfig,
-};
+use crate::stream::{AudioInputCallback, AudioOutputCallback, StreamConfig};
 use std::borrow::Cow;
 use windows::Win32::Media::Audio;
 

@@ -1,6 +1,5 @@
 use crate::util::sine::SineWave;
 use anyhow::Result;
-use interflow::duplex::AudioDuplexCallback;
 use interflow::prelude::*;
 
 mod util;

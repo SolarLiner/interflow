@@ -19,13 +19,14 @@ use thiserror::Error;
 
 use crate::audio_buffer::{AudioBuffer, Sample};
 use crate::channel_map::Bitset;
+use crate::device::{AudioDevice, AudioInputDevice, AudioOutputDevice, Channel, DeviceType};
+use crate::driver::AudioDriver;
 use crate::prelude::ChannelMap32;
-use crate::timestamp::Timestamp;
-use crate::{
-    AudioCallbackContext, AudioDevice, AudioDriver, AudioInput, AudioInputCallback,
-    AudioInputDevice, AudioOutput, AudioOutputCallback, AudioOutputDevice, AudioStreamHandle,
-    Channel, DeviceType, SendEverywhereButOnWeb, StreamConfig,
+use crate::stream::{
+    AudioCallbackContext, AudioInputCallback, AudioOutputCallback, AudioStreamHandle, StreamConfig,
 };
+use crate::timestamp::Timestamp;
+use crate::{AudioInput, AudioOutput, SendEverywhereButOnWeb};
 
 /// Type of errors from the CoreAudio backend
 #[derive(Debug, Error)]

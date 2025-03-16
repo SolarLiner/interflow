@@ -2,7 +2,8 @@ use crate::audio_buffer::AudioRef;
 use crate::backends::alsa::stream::AlsaStream;
 use crate::backends::alsa::AlsaError;
 use crate::prelude::alsa::device::AlsaDevice;
-use crate::{AudioCallbackContext, AudioInput, AudioInputCallback, StreamConfig};
+use crate::stream::AudioInput;
+use crate::stream::{AudioCallbackContext, AudioInputCallback, StreamConfig};
 
 impl<Callback: 'static + Send + AudioInputCallback> AlsaStream<Callback> {
     pub(super) fn new_input(

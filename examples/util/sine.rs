@@ -1,4 +1,4 @@
-use interflow::{AudioCallbackContext, AudioOutput, AudioOutputCallback};
+use interflow::prelude::*;
 use std::f32::consts::TAU;
 
 pub struct SineWave {

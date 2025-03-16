@@ -3,6 +3,7 @@ use crate::util::AtomicF32;
 use anyhow::Result;
 use interflow::prelude::*;
 use std::sync::Arc;
+
 mod util;
 
 fn main() -> Result<()> {
