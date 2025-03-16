@@ -5,11 +5,7 @@
 //! (PulseAudio, PipeWire) offer ALSA-compatible APIs so that older software can still access the
 //! audio devices through them.
 
-use crate::channel_map::Bitset;
-use crate::{
-    AudioDevice, AudioDriver, AudioInputCallback, AudioInputDevice, AudioOutputCallback,
-    AudioOutputDevice, AudioStreamHandle, DeviceType,
-};
+use crate::{AudioDevice, AudioDriver, DeviceType};
 use alsa::device_name::HintIter;
 use device::AlsaDevice;
 use std::borrow::Cow;

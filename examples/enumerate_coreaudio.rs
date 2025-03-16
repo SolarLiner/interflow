@@ -1,9 +1,7 @@
-use std::error::Error;
-
 mod util;
 
 #[cfg(os_coreaudio)]
-fn main() -> Result<(), Box<dyn Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     use crate::util::enumerate::enumerate_devices;
     use interflow::backends::coreaudio::CoreAudioDriver;
 

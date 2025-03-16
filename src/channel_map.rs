@@ -1,3 +1,28 @@
+//! This module provides functionality for working with bitsets and channel mapping.
+//!
+//! A bitset is a data structure that efficiently stores a set of boolean values using bits.
+//! Each bit represents a boolean state (true/false) for a specific index or channel.
+//!
+//! The module includes:
+//! - Generic `Bitset` trait for types that can represent sets of boolean values
+//! - `CreateBitset` trait for constructing bitsets from indices
+//! - Implementations for standard unsigned integer types (u8, u16, u32, u64, u128)
+//! - Slice-based implementation for working with arrays of bitsets
+//! - Type aliases for common channel map sizes (32, 64, and 128 bits)
+//!
+//! # Example
+//!
+//! ```
+//! use interflow::channel_map::Bitset;
+//!
+//! let mut map = 0u32;
+//! map.set_index(0, true);
+//! map.set_index(5, true);
+//! assert!(map.get_index(0));
+//! assert!(map.get_index(5));
+//! assert!(!map.get_index(1));
+//! ```
+
 use core::panic;
 
 /// Trait for types which can represent bitsets.
@@ -39,6 +64,10 @@ pub trait Bitset: Sized {
     }
 }
 
+pub trait CreateBitset: Bitset {
+    fn from_indices(indices: impl IntoIterator<Item = usize>) -> Self;
+}
+
 #[duplicate::duplicate_item(
     ty;
     [u8];
@@ -68,6 +97,23 @@ impl Bitset for ty {
 
     fn count(&self) -> usize {
         self.count_ones() as _
+    }
+}
+
+#[duplicate::duplicate_item(
+    ty;
+    [u8];
+    [u16];
+    [u32];
+    [u64];
+    [u128];
+)]
+impl CreateBitset for ty {
+    fn from_indices(indices: impl IntoIterator<Item = usize>) -> Self {
+        indices
+            .into_iter()
+            .inspect(|x| assert!(*x < Self::BITS as usize, "Index out of range"))
+            .fold(0, |acc, ix| acc | (1 << ix))
     }
 }
 
@@ -115,7 +161,7 @@ mod test {
     use std::collections::HashSet;
     use std::hash::RandomState;
 
-    use crate::channel_map::Bitset;
+    use super::*;
 
     #[test]
     fn test_getset_index() {
@@ -129,6 +175,12 @@ mod test {
         assert!(bitset.get_index(0));
         assert!(bitset.get_index(3));
         assert!(!bitset.get_index(2));
+    }
+
+    #[test]
+    fn test_from_indices() {
+        let bitset = u8::from_indices([0, 2, 3]);
+        assert_eq!(0b1101, bitset);
     }
 
     #[test]
