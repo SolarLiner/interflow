@@ -19,6 +19,10 @@
 //!
 //! The buffers are built on top of ndarray for efficient multidimensional array operations.
 
+use ndarray::{
+    s, Array0, ArrayBase, ArrayView1, ArrayView2, ArrayViewMut1, ArrayViewMut2, AsArray, CowRepr,
+    Data, DataMut, DataOwned, Ix1, Ix2, OwnedArcRepr, OwnedRepr, RawData, RawDataClone, ViewRepr,
+};
 use std::collections::Bound;
 use std::fmt;
 use std::fmt::Formatter;
@@ -593,6 +597,7 @@ impl<S: DataMut<Elem: Sample>> AudioBufferBase<S> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ndarray::ArrayView1;
 
     fn create_test_buffer() -> AudioBuffer<f32> {
         AudioBuffer::fill_with(2, 4, |ch, i| (ch * 4 + i) as f32)
