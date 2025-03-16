@@ -1,4 +1,3 @@
-use crate::audio_buffer::{AudioMut, AudioRef};
 use crate::backends::alsa::device::AlsaDevice;
 use crate::backends::alsa::{triggerfd, AlsaError};
 use crate::channel_map::{Bitset, ChannelMap32};
@@ -6,7 +5,6 @@ use crate::stream::{AudioStreamHandle, StreamConfig};
 use crate::timestamp::Timestamp;
 use alsa::pcm;
 use alsa::PollDescriptors;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
@@ -43,7 +41,7 @@ impl<Callback: 'static + Send> AlsaStream<Callback> {
                 &dyn Fn(alsa::Error) -> Result<(), alsa::Error>,
             ) -> Result<(), alsa::Error>,
     ) -> Result<Self, AlsaError> {
-        let (tx, rx) = super::triggerfd::trigger()?;
+        let (tx, rx) = triggerfd::trigger()?;
         let join_handle = std::thread::spawn({
             move || {
                 let device = device()?;
