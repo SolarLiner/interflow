@@ -1,8 +1,8 @@
 use crate::audio_buffer::AudioBuffer;
 use crate::channel_map::Bitset;
 use crate::{
-    AudioCallbackContext, AudioInput, AudioInputCallback, AudioInputDevice, AudioOutput,
-    AudioOutputCallback, AudioOutputDevice, AudioStreamHandle, SendEverywhereButOnWeb,
+    AudioCallbackContext, AudioDevice, AudioInput, AudioInputCallback, AudioInputDevice,
+    AudioOutput, AudioOutputCallback, AudioOutputDevice, AudioStreamHandle, SendEverywhereButOnWeb,
     StreamConfig,
 };
 use ndarray::{ArrayView1, ArrayViewMut1};
@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use thiserror::Error;
 
+/// Trait of types that can process both input and output audio streams at the same time.
 pub trait AudioDuplexCallback: 'static + SendEverywhereButOnWeb {
     /// Processes audio data in a duplex stream.
     ///
@@ -26,10 +27,13 @@ pub trait AudioDuplexCallback: 'static + SendEverywhereButOnWeb {
     );
 }
 
+/// Type which handles both a duplex stream handle.
 pub struct DuplexStream<Callback, Error> {
     input_stream: Box<dyn AudioStreamHandle<InputProxy, Error = Error>>,
     output_stream: Box<dyn AudioStreamHandle<DuplexCallback<Callback>, Error = Error>>,
 }
+
+/// Input proxy for transferring an input signal to a separate output callback to be processed as a duplex stream.
 pub struct InputProxy {
     buffer: rtrb::Producer<f32>,
     output_sample_rate: Arc<AtomicU64>,
@@ -235,6 +239,15 @@ impl<
     }
 }
 
+/// Type alias of the result of creating a duplex stream.
+pub type DuplexStreamResult<In, Out, Callback> = Result<
+    DuplexStreamHandle<
+        <In as AudioInputDevice>::StreamHandle<InputProxy>,
+        <Out as AudioOutputDevice>::StreamHandle<DuplexCallback<Callback>>,
+    >,
+    DuplexCallbackError<<In as AudioDevice>::Error, <Out as AudioDevice>::Error>,
+>;
+
 /// Creates a duplex audio stream that handles both input and output simultaneously.
 ///
 /// This function sets up a full-duplex audio stream by creating separate input and output streams
@@ -271,7 +284,7 @@ impl<
 ///
 /// impl AudioDuplexCallback for MyCallback {
 ///     fn on_audio_data(&mut self, context: AudioCallbackContext, input: AudioInput<f32>, output: AudioOutput<f32>) {
-///         /// Implementation left as exercise to the reader
+///         // Implementation left as exercise to the reader
 ///     }
 /// }
 ///
