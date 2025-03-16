@@ -2,11 +2,8 @@ use crate::audio_buffer::{AudioMut, AudioRef};
 use crate::backends::alsa::device::AlsaDevice;
 use crate::backends::alsa::{triggerfd, AlsaError};
 use crate::channel_map::{Bitset, ChannelMap32};
+use crate::stream::{AudioStreamHandle, StreamConfig};
 use crate::timestamp::Timestamp;
-use crate::{
-    AudioCallbackContext, AudioInput, AudioInputDevice, AudioOutputDevice, AudioStreamHandle,
-    StreamConfig,
-};
 use alsa::pcm;
 use alsa::PollDescriptors;
 use std::sync::atomic::{AtomicBool, Ordering};

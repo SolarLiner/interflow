@@ -1,4 +1,4 @@
-use interflow::{AudioDevice, AudioDriver, DeviceType};
+use interflow::prelude::*;
 use std::error::Error;
 
 pub fn enumerate_devices<Driver: AudioDriver>(driver: Driver) -> Result<(), Box<dyn Error>>
