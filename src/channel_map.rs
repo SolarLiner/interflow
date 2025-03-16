@@ -11,7 +11,7 @@
 //! - Type aliases for common channel map sizes (32, 64, and 128 bits)
 //!
 //! # Example
-//! 
+//!
 //! ```
 //! use interflow::channel_map::Bitset;
 //!
@@ -66,7 +66,6 @@ pub trait Bitset: Sized {
 
 pub trait CreateBitset: Bitset {
     fn from_indices(indices: impl IntoIterator<Item = usize>) -> Self;
-
 }
 
 #[duplicate::duplicate_item(
@@ -113,8 +112,8 @@ impl CreateBitset for ty {
     fn from_indices(indices: impl IntoIterator<Item = usize>) -> Self {
         indices
             .into_iter()
-            .inspect(|x| assert!(*x < size_of::<Self>() * 8, "Index out of range"))
-            .fold(0, |acc, ix| acc | 1 << ix)
+            .inspect(|x| assert!(*x < Self::BITS as usize, "Index out of range"))
+            .fold(0, |acc, ix| acc | (1 << ix))
     }
 }
 
@@ -177,7 +176,7 @@ mod test {
         assert!(bitset.get_index(3));
         assert!(!bitset.get_index(2));
     }
-    
+
     #[test]
     fn test_from_indices() {
         let bitset = u8::from_indices([0, 2, 3]);

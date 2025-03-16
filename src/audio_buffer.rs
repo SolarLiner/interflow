@@ -4,7 +4,7 @@
 //!
 //! - [`AudioBuffer`]: Owned buffer type for standard audio processing
 //! - [`AudioRef`]: Immutable reference buffer for reading audio data
-//! - [`AudioMut`]: Mutable reference buffer for modifying audio data  
+//! - [`AudioMut`]: Mutable reference buffer for modifying audio data
 //! - [`AudioShared`]: Arc-backed shared buffer for multithreaded access
 //! - [`AudioCow`]: Copy-on-write buffer (avoid in audio callbacks)
 //!

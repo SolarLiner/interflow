@@ -1,5 +1,3 @@
-use std::error::Error;
-
 mod util;
 
 #[cfg(os_coreaudio)]

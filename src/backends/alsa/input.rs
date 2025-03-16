@@ -18,7 +18,7 @@ impl<Callback: 'static + Send + AudioInputCallback> AlsaStream<Callback> {
                 if let Err(err) = ctx.io.readi(&mut ctx.buffer[..]) {
                     recover(err)?;
                 }
-                let buffer = AudioRef::from_interleaved(&ctx.buffer, ctx.num_channels).unwrap();
+                let buffer = AudioRef::from_interleaved(ctx.buffer, ctx.num_channels).unwrap();
                 let context = AudioCallbackContext {
                     stream_config,
                     timestamp: *ctx.timestamp,
