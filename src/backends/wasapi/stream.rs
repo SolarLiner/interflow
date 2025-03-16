@@ -3,10 +3,10 @@ use crate::audio_buffer::AudioMut;
 use crate::backends::wasapi::util::WasapiMMDevice;
 use crate::channel_map::Bitset;
 use crate::prelude::{AudioRef, Timestamp};
-use crate::{
-    AudioCallbackContext, AudioInput, AudioInputCallback, AudioOutput, AudioOutputCallback,
-    AudioStreamHandle, StreamConfig,
+use crate::stream::{
+    AudioCallbackContext, AudioInputCallback, AudioOutputCallback, AudioStreamHandle, StreamConfig,
 };
+use crate::{AudioInput, AudioOutput};
 use duplicate::duplicate_item;
 use std::marker::PhantomData;
 use std::ptr::NonNull;

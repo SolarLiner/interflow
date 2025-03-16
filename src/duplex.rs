@@ -4,12 +4,13 @@
 //! output sample rate.
 use crate::audio_buffer::AudioRef;
 use crate::channel_map::Bitset;
-use crate::{
-    AudioCallbackContext, AudioDevice, AudioInput, AudioInputCallback, AudioInputDevice,
-    AudioOutput, AudioOutputCallback, AudioOutputDevice, AudioStreamHandle, SendEverywhereButOnWeb,
-    StreamConfig,
+use crate::device::{AudioInputDevice, AudioOutputDevice};
+use crate::stream::{
+    AudioCallbackContext, AudioInputCallback, AudioOutputCallback, AudioStreamHandle, StreamConfig,
 };
-use fixed_resample::{PushStatus, ReadStatus, ResamplingChannelConfig};
+use crate::stream::{AudioInput, AudioOutput};
+use crate::SendEverywhereButOnWeb;
+use ndarray::{ArrayView1, ArrayViewMut1};
 use std::error::Error;
 use std::num::NonZeroUsize;
 use thiserror::Error;
