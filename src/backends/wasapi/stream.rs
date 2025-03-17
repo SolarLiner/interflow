@@ -1,12 +1,11 @@
 use super::error;
-use crate::audio_buffer::AudioMut;
+use crate::audio_buffer::{AudioMut, AudioRef};
 use crate::backends::wasapi::util::WasapiMMDevice;
 use crate::channel_map::Bitset;
-use crate::prelude::{AudioRef, Timestamp};
 use crate::stream::{
-    AudioCallbackContext, AudioInputCallback, AudioOutputCallback, AudioStreamHandle, StreamConfig,
+    AudioCallbackContext, AudioInput, AudioInputCallback, AudioOutput, AudioOutputCallback, AudioStreamHandle, StreamConfig
 };
-use crate::{AudioInput, AudioOutput};
+use crate::timestamp::Timestamp;
 use duplicate::duplicate_item;
 use std::marker::PhantomData;
 use std::ptr::NonNull;
@@ -483,7 +482,7 @@ pub(crate) fn is_output_config_supported(
     device: WasapiMMDevice,
     stream_config: &StreamConfig,
 ) -> bool {
-    let mut try_ = || unsafe {
+    let try_ = || unsafe {
         let audio_client: Audio::IAudioClient = device.activate()?;
         let sharemode = if stream_config.exclusive {
             Audio::AUDCLNT_SHAREMODE_EXCLUSIVE

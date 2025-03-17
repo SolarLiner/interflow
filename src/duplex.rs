@@ -4,7 +4,7 @@
 //! output sample rate.
 use crate::audio_buffer::AudioRef;
 use crate::channel_map::Bitset;
-use crate::device::{AudioInputDevice, AudioOutputDevice};
+use crate::device::{AudioDevice, AudioInputDevice, AudioOutputDevice};
 use crate::stream::{
     AudioCallbackContext, AudioInputCallback, AudioOutputCallback, AudioStreamHandle, StreamConfig,
 };

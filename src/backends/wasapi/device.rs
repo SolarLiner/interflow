@@ -41,10 +41,6 @@ impl AudioDevice for WasapiDevice {
         self.device_type
     }
 
-    fn channel_map(&self) -> impl IntoIterator<Item = Channel> {
-        []
-    }
-
     fn is_config_supported(&self, config: &StreamConfig) -> bool {
         match self.device_type {
             DeviceType::Output => stream::is_output_config_supported(self.device.clone(), config),
@@ -59,6 +55,10 @@ impl AudioDevice for WasapiDevice {
 
 impl AudioInputDevice for WasapiDevice {
     type StreamHandle<Callback: AudioInputCallback> = WasapiStream<Callback>;
+
+    fn input_channel_map(&self) -> impl Iterator<Item = Channel> {
+        [].into_iter()
+    }
 
     fn default_input_config(&self) -> Result<StreamConfig, Self::Error> {
         let audio_client = self.device.activate::<Audio::IAudioClient>()?;
@@ -89,6 +89,10 @@ impl AudioInputDevice for WasapiDevice {
 
 impl AudioOutputDevice for WasapiDevice {
     type StreamHandle<Callback: AudioOutputCallback> = WasapiStream<Callback>;
+
+    fn output_channel_map(&self) -> impl Iterator<Item = Channel> {
+        [].into_iter()
+    }
 
     fn default_output_config(&self) -> Result<StreamConfig, Self::Error> {
         let audio_client = self.device.activate::<Audio::IAudioClient>()?;
