@@ -5,6 +5,10 @@ edition = "2021"
 rust-version = "1.80"
 license = "MIT"
 
+[features]
+default = ["asio"]
+asio = ["asio-sys", "num-traits"]
+
 [dependencies]
 duplicate = "1.0.0"
 log = { version = "0.4.22", features = ["kv"] }
@@ -43,6 +47,8 @@ windows = { version = "0.58.0", features = [
     "Win32_Media_Multimedia",
     "Win32_UI_Shell_PropertiesSystem"
 ]}
+asio-sys ={ version = "0.2.2", optional = true }
+num-traits = {version = "0.2.19", optional = true }
 
 [[example]]
 name = "enumerate_alsa"
@@ -55,3 +61,8 @@ path = "examples/enumerate_coreaudio.rs"
 [[example]]
 name = "enumerate_wasapi"
 path = "examples/enumerate_wasapi.rs"
+
+[[example]]
+name = "enumerate_asio"
+path = "examples/enumerate_asio.rs"
+features = ["asio"]
