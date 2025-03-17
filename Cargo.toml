@@ -6,31 +6,31 @@ rust-version = "1.80"
 license = "MIT"
 
 [dependencies]
-duplicate = "1.0.0"
-log = { version = "0.4.22", features = ["kv"] }
-ndarray = "0.15.6"
-oneshot = "0.1.8"
-thiserror = "1.0.63"
-rtrb = "0.3.1"
+duplicate = "2.0.0"
+log = { version = "0.4.26", features = ["kv"] }
+ndarray = "0.16.1"
+oneshot = "0.1.11"
+thiserror = "2.0.12"
+rtrb = "0.3.2"
 
 [dev-dependencies]
-anyhow = "1.0.86"
-env_logger = "0.11.5"
-indicatif = "0.17.8"
+anyhow = "1.0.97"
+env_logger = "0.11.7"
+indicatif = "0.17.11"
 
 [build-dependencies]
 cfg_aliases = "0.2.1"
 
 [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd"))'.dependencies]
-alsa = "0.9.0"
+alsa = "0.9.1"
 libc = "0.2.171"
 nix = "0.29.0"
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
-coreaudio-rs = "0.12.0"
+coreaudio-rs = "0.12.1"
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows = { version = "0.58.0", features = [
+windows = { version = "0.60.0", features = [
     "Win32_Media_Audio",
     "Win32_Foundation",
     "Win32_Devices_Properties",
