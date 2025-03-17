@@ -275,9 +275,9 @@ checksum = "1a7e05e2b3c97d4516fa5c177133f3e4decf9c8318841e1545b260535311e3a5"
 
 [[package]]
 name = "fixed-resample"
-version = "0.7.1"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aef8e89e753f8fec9f1158f665d3cc0c96662b7793e1c05095a071ee27a1b122"
+checksum = "39a267bc40fae9b208e2a67a99a8d794caf3a9fe1146d01c147f59bd96257a74"
 dependencies = [
  "arrayvec",
  "fast-interleave",

@@ -3,13 +3,14 @@
 //! This module includes a proxy for gathering an input audio stream, and optionally process it to resample it to the
 //! output sample rate.
 use crate::audio_buffer::AudioBuffer;
+use crate::audio_buffer::AudioRef;
 use crate::channel_map::Bitset;
 use crate::{
     AudioCallbackContext, AudioDevice, AudioInput, AudioInputCallback, AudioInputDevice,
     AudioOutput, AudioOutputCallback, AudioOutputDevice, AudioStreamHandle, SendEverywhereButOnWeb,
     StreamConfig,
 };
-use ndarray::{ArrayView1, ArrayViewMut1};
+use fixed_resample::{PushStatus, ReadStatus, ResamplingChannelConfig};
 use std::error::Error;
 use std::num::NonZeroUsize;
 use thiserror::Error;
@@ -93,7 +94,11 @@ impl AudioInputCallback for InputProxy {
                 num_channels,
                 input_samplerate,
                 output_samplerate,
-                Default::default(),
+                ResamplingChannelConfig {
+                    latency_seconds: 0.01,
+                    quality: fixed_resample::ResampleQuality::Low,
+                    ..Default::default()
+                },
             );
             self.producer.replace(tx);
             match self.send_consumer.push(rx) {
@@ -112,9 +117,6 @@ impl AudioInputCallback for InputProxy {
             log::debug!("No resampling producer available, dropping input data");
             return;
         };
-        if producer.correct_underflows() {
-            log::error!("Input proxy: underflow detected");
-        }
 
         let mut scratch = [0f32; 32 * MAX_CHANNELS];
         for slice in input.buffer.chunks(32) {
@@ -123,7 +125,15 @@ impl AudioInputCallback for InputProxy {
                 slice.copy_into_interleaved(&mut scratch[..len]),
                 "Cannot fail: len is computed from slice itself"
             );
-            producer.push_interleaved(&scratch[..len]);
+            match producer.push_interleaved(&scratch[..len]) {
+                PushStatus::OverflowOccurred { .. } => {
+                    log::error!("Input proxy: overflow occurred");
+                }
+                PushStatus::UnderflowCorrected { .. } => {
+                    log::error!("Input proxy: underflow corrected");
+                }
+                _ => {}
+            }
         }
     }
 }
@@ -148,8 +158,10 @@ pub struct DuplexCallback<Callback> {
     receive_consumer: rtrb::Consumer<fixed_resample::ResamplingCons<f32>>,
     send_samplerate: rtrb::Producer<u32>,
     callback: Callback,
-    storage: AudioBuffer<f32>,
+    storage_raw: Box<[f32]>,
     current_samplerate: u32,
+    num_input_channels: usize,
+    pub resample_config: ResamplingChannelConfig,
 }
 
 impl<Callback> DuplexCallback<Callback> {
@@ -166,11 +178,9 @@ impl<Callback: AudioDuplexCallback> AudioOutputCallback for DuplexCallback<Callb
     fn on_output_data(&mut self, context: AudioCallbackContext, output: AudioOutput<f32>) {
         // If changed, send new output samplerate to input proxy
         let samplerate = context.stream_config.samplerate as u32;
-        if samplerate != self.current_samplerate {
-            if let Ok(_) = self.send_samplerate.push(samplerate) {
-                log::debug!("Output samplerate changed to {}", samplerate);
-                self.current_samplerate = samplerate;
-            }
+        if samplerate != self.current_samplerate && self.send_samplerate.push(samplerate).is_ok() {
+            log::debug!("Output samplerate changed to {}", samplerate);
+            self.current_samplerate = samplerate;
         }
 
         // Receive updated resample channel
@@ -180,31 +190,32 @@ impl<Callback: AudioDuplexCallback> AudioOutputCallback for DuplexCallback<Callb
                 input.out_sample_rate(),
                 input.in_sample_rate()
             );
+            self.num_input_channels = input.num_channels().get();
             self.input.replace(input);
         }
 
         // Receive input from proxy
-        let num_samples = if let Some(input) = &mut self.input {
-            let discarded = input.discard_jitter(0.5);
-            if discarded > 0 {
-                log::warn!("Input jitter detected: {discarded} samples skipped");
+        let frames = output.buffer.num_samples();
+        let storage = if let Some(input) = &mut self.input {
+            let len = input.num_channels().get() * frames;
+            let slice = &mut self.storage_raw[..len];
+            match input.read_interleaved(slice) {
+                ReadStatus::UnderflowOccurred { .. } => {
+                    log::error!("Output resample channel underflow occurred");
+                }
+                ReadStatus::OverflowCorrected { .. } => {
+                    log::error!("Output resample channel overflow corrected");
+                }
+                _ => {}
             }
-            let mut frame = [0f32; MAX_CHANNELS];
-            let num_channels = self.storage.num_channels();
-            let num_samples = self.storage.num_samples().min(input.available_frames());
-            for i in 0..num_samples {
-                let frame = &mut frame[..num_channels];
-                input.read_interleaved(frame);
-                self.storage.set_frame(i, &frame);
-            }
-            num_samples
+            AudioRef::from_interleaved(slice, input.num_channels().get()).unwrap()
         } else {
-            0
+            AudioRef::from_interleaved(&[], self.num_input_channels).unwrap()
         };
 
         let input = AudioInput {
             timestamp: context.timestamp,
-            buffer: self.storage.slice(..num_samples),
+            buffer: storage,
         };
         // Run user callback
         self.callback.on_audio_data(context, input, output);
@@ -248,10 +259,9 @@ impl<Callback: AudioDuplexCallback> AudioOutputCallback for DuplexCallback<Callb
 /// // Create and use a duplex stream
 /// let stream_handle = create_duplex_stream(
 ///     input_device,
-///     input_config,
 ///     output_device,
-///     output_config,
-///     MyCallback::new()
+///     MyCallback::new(),
+///     DuplexStreamConfig::new(input_config, output_config),
 /// ).expect("Failed to create duplex stream");
 ///
 /// // Later, stop the stream and retrieve the callback
@@ -287,6 +297,32 @@ impl<
         duplex_callback
             .into_inner()
             .map_err(DuplexCallbackError::Other)
+    }
+}
+
+/// Configuration type for manual duplex streams.
+#[derive(Debug, Copy, Clone)]
+pub struct DuplexStreamConfig {
+    /// Input stream configuration
+    pub input: StreamConfig,
+    /// Output stream configuration
+    pub output: StreamConfig,
+    /// Use high quality resampling. Increases latency and CPU usage.
+    pub high_quality_resampling: bool,
+    /// Target latency. May be higher if the resampling takes too much latency.
+    pub target_latency_secs: f32,
+}
+
+impl DuplexStreamConfig {
+    /// Create a new duplex stream config with the provided input and output stream configuration, and default
+    /// resampler values.
+    pub fn new(input: StreamConfig, output: StreamConfig) -> Self {
+        Self {
+            input,
+            output,
+            high_quality_resampling: false,
+            target_latency_secs: 0.01,
+        }
     }
 }
 
@@ -348,10 +384,9 @@ pub type DuplexStreamResult<In, Out, Callback> = Result<
 ///
 /// let duplex_stream = create_duplex_stream(
 ///     input_device,
-///     input_config,
 ///     output_device,
-///     output_config,
-///     callback
+///     callback,
+///     DuplexStreamConfig::new(input_config, output_config),
 /// ).expect("Failed to create duplex stream");
 ///
 /// ```
@@ -362,10 +397,9 @@ pub fn create_duplex_stream<
     Callback: AudioDuplexCallback,
 >(
     input_device: InputDevice,
-    input_config: StreamConfig,
     output_device: OutputDevice,
-    output_config: StreamConfig,
     callback: Callback,
+    config: DuplexStreamConfig,
 ) -> Result<
     DuplexStreamHandle<
         InputDevice::StreamHandle<InputProxy>,
@@ -375,21 +409,30 @@ pub fn create_duplex_stream<
 > {
     let (proxy, send_samplerate, receive_consumer) = InputProxy::new();
     let input_handle = input_device
-        .create_input_stream(input_config, proxy)
+        .create_input_stream(config.input, proxy)
         .map_err(DuplexCallbackError::InputError)?;
     let output_handle = output_device
         .create_output_stream(
-            output_config,
+            config.output,
             DuplexCallback {
                 input: None,
                 send_samplerate,
                 receive_consumer,
                 callback,
-                storage: AudioBuffer::zeroed(
-                    input_config.channels.count(),
-                    input_config.samplerate as _,
-                ),
+                storage_raw: vec![0f32; 8192 * MAX_CHANNELS].into_boxed_slice(),
                 current_samplerate: 0,
+                num_input_channels: config.input.channels.count(),
+                resample_config: fixed_resample::ResamplingChannelConfig {
+                    capacity_seconds: 2.0 * config.target_latency_secs as f64,
+                    latency_seconds: config.target_latency_secs as f64,
+                    subtract_resampler_delay: true,
+                    quality: if config.high_quality_resampling {
+                        fixed_resample::ResampleQuality::High
+                    } else {
+                        fixed_resample::ResampleQuality::Low
+                    },
+                    ..Default::default()
+                },
             },
         )
         .map_err(DuplexCallbackError::OutputError)?;
