@@ -196,7 +196,7 @@ impl AudioInputDevice for CoreAudioDevice {
             Element::Input,
         )?;
         Ok(StreamConfig {
-            channels: 0b1, // Hardcoded to mono on non-interleaved inputs
+            channels: 0b11,
             samplerate,
             buffer_size_range: (None, None),
             exclusive: false,
