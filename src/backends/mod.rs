@@ -24,6 +24,9 @@ pub mod wasapi;
 #[cfg(all(os_pipewire, feature = "pipewire"))]
 pub mod pipewire;
 
+#[cfg(os_asio)]
+pub mod asio;
+
 /// Returns the default driver.
 ///
 /// "Default" here means that it is a supported driver that is available on the platform.
@@ -110,8 +113,10 @@ pub fn default_output_device() -> impl AudioOutputDevice {
     return default_output_device_from(&alsa::AlsaDriver);
     #[cfg(os_coreaudio)]
     return default_output_device_from(&coreaudio::CoreAudioDriver);
-    #[cfg(os_wasapi)]
-    return default_output_device_from(&wasapi::WasapiDriver);
+    // #[cfg(os_wasapi)]
+    // return default_output_device_from(&wasapi::WasapiDriver);
+    #[cfg(os_asio)]
+    return default_output_device_from(&asio::AsioDriver::new().unwrap());
 }
 
 /// Default duplex device from the default driver of this platform.

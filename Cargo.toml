@@ -5,8 +5,11 @@ edition = "2021"
 rust-version = "1.80"
 license = "MIT"
 
+[features]
+default = ["asio"]
+asio = ["asio-sys", "num-traits"]
+
 [dependencies]
-bitflags = "2.9.0"
 duplicate = "2.0.0"
 fixed-resample = "0.8.0"
 libspa = { version = "0.8.0", optional = true }
@@ -31,7 +34,7 @@ pipewire = ["dep:pipewire", "dep:libspa", "dep:libspa-sys", "dep:zerocopy"]
 
 [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd"))'.dependencies]
 alsa = "0.9.1"
-libc = "0.2.172"
+libc = "0.2.171"
 nix = "0.29.0"
 pipewire = { version = "0.8.0", optional = true }
 
@@ -52,6 +55,8 @@ windows = { version = "0.61.1", features = [
     "Win32_Media_Multimedia",
     "Win32_UI_Shell_PropertiesSystem"
 ]}
+asio-sys ={ version = "0.2.2", optional = true }
+num-traits = {version = "0.2.19", optional = true }
 
 [[example]]
 name = "enumerate_alsa"
@@ -64,8 +69,13 @@ path = "examples/enumerate_coreaudio.rs"
 [[example]]
 name = "enumerate_wasapi"
 path = "examples/enumerate_wasapi.rs"
+required-features = ["pipewire"]
 
 [[example]]
 name = "enumerate_pipewire"
 path = "examples/enumerate_pipewire.rs"
-required-features = ["pipewire"]
+
+[[example]]
+name = "enumerate_asio"
+path = "examples/enumerate_asio.rs"
+features = ["asio"]
