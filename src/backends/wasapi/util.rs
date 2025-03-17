@@ -102,10 +102,10 @@ fn get_device_name(device: &Audio::IMMDevice) -> Option<String> {
                 .GetValue(&Properties::DEVPKEY_Device_DeviceDesc as *const _ as *const _))
             .ok()?;
 
-        let prop_variant = &property_value.as_raw().Anonymous.Anonymous;
+        let prop_variant = &property_value.Anonymous.Anonymous;
 
         // Read the friendly-name from the union data field, expecting a *const u16.
-        if prop_variant.vt != VT_LPWSTR.0 {
+        if prop_variant.vt != VT_LPWSTR {
             return None;
         }
 
