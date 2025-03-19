@@ -25,6 +25,27 @@ jobs:
         components: rustfmt
     - name: Run rustfmt
       run: cargo fmt -- --check
+  clippy:
+    strategy:
+      matrix:
+        os: [windows, ubuntu, macos]
+    runs-on: ${{ matrix.os }}-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies (Linux)
+        if: ${{ matrix.os == 'ubuntu' }}
+        run: sudo apt install libasound2-dev
+      - name: Install Rust 1.85
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: 1.85
+          default: true
+          override: true
+          components: clippy
+      - uses: LoliGothick/clippy-check@master
+        continue-on-error: true
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
   test:
     strategy:
       fail-fast: false
@@ -43,11 +64,6 @@ jobs:
         toolchain: ${{ matrix.rust }}
         default: true
         override: true
-        components: clippy
-    - uses: LoliGothick/clippy-check@master
-      continue-on-error: true
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
     - name: Run clippy
       uses: clechasseur/rs-clippy-check@v4
       with:
