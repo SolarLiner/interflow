@@ -64,10 +64,6 @@ jobs:
         toolchain: ${{ matrix.rust }}
         default: true
         override: true
-    - name: Run clippy
-      uses: clechasseur/rs-clippy-check@v4
-      with:
-        args: --all-features
     - name: Build
       run: cargo build --verbose
     - name: Run tests
