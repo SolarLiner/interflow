@@ -21,6 +21,9 @@ pub mod coreaudio;
 #[cfg(os_wasapi)]
 pub mod wasapi;
 
+#[cfg(os_asio)]
+pub mod asio;
+
 /// Returns the default driver.
 ///
 /// "Default" here means that it is a supported driver that is available on the platform.
@@ -103,6 +106,8 @@ pub fn default_output_device() -> impl AudioOutputDevice {
     return default_output_device_from(&alsa::AlsaDriver);
     #[cfg(os_coreaudio)]
     return default_output_device_from(&coreaudio::CoreAudioDriver);
-    #[cfg(os_wasapi)]
-    return default_output_device_from(&wasapi::WasapiDriver);
+    // #[cfg(os_wasapi)]
+    // return default_output_device_from(&wasapi::WasapiDriver);
+    #[cfg(os_asio)]
+    return default_output_device_from(&asio::AsioDriver::new().unwrap());
 }
