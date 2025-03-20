@@ -1,6 +1,8 @@
 #![allow(unused)]
 //! Prelude module for `interflow`. Use as a star-import.
 
+#[cfg(os_asio)]
+pub use crate::backends::asio::prelude::*;
 #[cfg(os_wasapi)]
 pub use crate::backends::wasapi::prelude::*;
 pub use crate::backends::*;
