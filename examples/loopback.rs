@@ -1,9 +1,9 @@
 use crate::util::meter::PeakMeter;
 use crate::util::AtomicF32;
 use anyhow::Result;
-use interflow::duplex::AudioDuplexCallback;
 use interflow::prelude::*;
 use std::sync::Arc;
+
 mod util;
 
 fn main() -> Result<()> {

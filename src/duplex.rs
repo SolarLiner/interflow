@@ -1,10 +1,11 @@
 use crate::audio_buffer::AudioBuffer;
 use crate::channel_map::Bitset;
-use crate::{
-    AudioCallbackContext, AudioDevice, AudioInput, AudioInputCallback, AudioInputDevice,
-    AudioOutput, AudioOutputCallback, AudioOutputDevice, AudioStreamHandle, SendEverywhereButOnWeb,
-    StreamConfig,
+use crate::device::{AudioDevice, AudioInputDevice, AudioOutputDevice};
+use crate::stream::{
+    AudioCallbackContext, AudioInputCallback, AudioOutputCallback, AudioStreamHandle, StreamConfig,
 };
+use crate::stream::{AudioInput, AudioOutput};
+use crate::SendEverywhereButOnWeb;
 use ndarray::{ArrayView1, ArrayViewMut1};
 use std::error::Error;
 use std::sync::atomic::{AtomicU64, Ordering};
