@@ -198,6 +198,11 @@ impl AudioInputDevice for AsioDevice {
         let (tx, rx) = oneshot::channel::<oneshot::Sender<Callback>>();
         let mut callback = Some(callback);
 
+        let mut timestamp = Timestamp {
+            samplerate: stream_config.samplerate,
+            counter: 0,
+        };
+
         let callback_id = self.driver.add_callback(move |callback_info| unsafe {
             if let Ok(sender) = rx.try_recv() {
                 sender.send(callback.take().unwrap()).unwrap();
@@ -206,10 +211,7 @@ impl AudioInputDevice for AsioDevice {
 
             let buffer_index = callback_info.buffer_index as usize;
 
-            let timestamp = Timestamp {
-                samplerate: 41000.0,
-                counter: 0,
-            };
+            timestamp += input_stream.buffer_size as u64;
 
             let context = AudioCallbackContext {
                 stream_config,
@@ -282,6 +284,11 @@ impl AudioOutputDevice for AsioDevice {
         let (tx, rx) = oneshot::channel::<oneshot::Sender<Callback>>();
         let mut callback = Some(callback);
 
+        let mut timestamp = Timestamp {
+            samplerate: stream_config.samplerate,
+            counter: 0,
+        };
+
         let callback_id = self.driver.add_callback(move |callback_info| unsafe {
             if let Ok(sender) = rx.try_recv() {
                 sender.send(callback.take().unwrap()).unwrap();
@@ -290,10 +297,7 @@ impl AudioOutputDevice for AsioDevice {
 
             let buffer_index = callback_info.buffer_index as usize;
 
-            let timestamp = Timestamp {
-                samplerate: 41000.0,
-                counter: 0,
-            };
+            timestamp += output_stream.buffer_size as u64;
 
             let context = AudioCallbackContext {
                 stream_config,
@@ -366,6 +370,11 @@ impl AudioDuplexDevice for AsioDevice {
         let (tx, rx) = oneshot::channel::<oneshot::Sender<Callback>>();
         let mut callback = Some(callback);
 
+        let mut timestamp = Timestamp {
+            samplerate: stream_config.samplerate,
+            counter: 0,
+        };
+
         let callback_id = self.driver.add_callback(move |callback_info| unsafe {
             if let Ok(sender) = rx.try_recv() {
                 sender.send(callback.take().unwrap()).unwrap();
@@ -374,10 +383,7 @@ impl AudioDuplexDevice for AsioDevice {
 
             let buffer_index = callback_info.buffer_index as usize;
 
-            let timestamp = Timestamp {
-                samplerate: 41000.0,
-                counter: 0,
-            };
+            timestamp += output_stream.buffer_size as u64;
 
             let input = create_input(
                 &input_data_type,
@@ -696,15 +702,3 @@ fn f32_to_i32(f: f32) -> i32 {
 fn f32_to_i24(f: f32) -> i32 {
     (f * 0x7FFFFF as f32) as i32
 }
-
-// fn asio_ns_to_double(val: sys::bindings::asio_import::ASIOTimeStamp) -> f64 {
-//     let two_raised_to_32 = 4294967296.0;
-//     val.lo as f64 + val.hi as f64 * two_raised_to_32
-// }
-
-// fn system_time_to_timestamp(system_time: asio::AsioTime) -> timestamp::Timestamp {
-//     let systime_ns = asio_ns_to_double(system_time);
-//     let secs = systime_ns as i64 / 1_000_000_000;
-//     let nanos = (systime_ns as i64 - secs * 1_000_000_000) as u32;
-
-// }
