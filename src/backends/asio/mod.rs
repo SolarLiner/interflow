@@ -1,7 +1,6 @@
-
-mod device;
+pub(crate) mod device;
 pub(crate) mod driver;
-mod error;
-mod stream;
+pub use driver::AsioDriver;
+pub(crate) mod error;
 pub mod prelude;
-pub use prelude::*;
+pub(crate) mod stream;

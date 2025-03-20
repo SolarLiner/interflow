@@ -1,5 +1,5 @@
-use thiserror::Error;
 use asio_sys::AsioError as AsioSysError;
+use thiserror::Error;
 
 /// Type of errors from the ASIO backend.
 #[derive(Debug, Error)]
@@ -13,4 +13,6 @@ pub enum AsioError {
     ConfigurationNotAvailable,
     #[error("Device unavailable")]
     DeviceUnavailable,
+    #[error("Multiple streams not supported")]
+    MultipleStreams,
 }

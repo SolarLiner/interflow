@@ -116,7 +116,7 @@ pub fn default_output_device() -> impl AudioOutputDevice {
     // #[cfg(os_wasapi)]
     // return default_output_device_from(&wasapi::WasapiDriver);
     #[cfg(os_asio)]
-    return default_output_device_from(&asio::AsioDriver::new().unwrap());
+    return default_output_device_from(&asio::driver::AsioDriver::new().unwrap());
 }
 
 /// Default duplex device from the default driver of this platform.

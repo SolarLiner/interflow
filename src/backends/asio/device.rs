@@ -1,16 +1,28 @@
-
-use std::{borrow::Cow, sync::{atomic::AtomicBool, Arc, Mutex}};
-
+use std::{
+    borrow::Cow,
+    sync::{Arc, Mutex},
+};
 
 use asio_sys as asio;
 use num_traits::PrimInt;
 
-use crate::{audio_buffer::{AudioMut, AudioRef}, device::{AudioDevice, AudioDuplexDevice, AudioInputDevice, AudioOutputDevice, Channel, DeviceType}, duplex::AudioDuplexCallback, stream::{AudioCallbackContext, AudioInput, AudioInputCallback, AudioOutput, AudioOutputCallback, AudioStreamHandle, StreamConfig}, timestamp::{self, Timestamp}, SendEverywhereButOnWeb};
+use crate::{
+    audio_buffer::{AudioMut, AudioRef},
+    device::{
+        AudioDevice, AudioDuplexDevice, AudioInputDevice, AudioOutputDevice, Channel, DeviceType,
+    },
+    duplex::AudioDuplexCallback,
+    stream::{
+        AudioCallbackContext, AudioInput, AudioInputCallback, AudioOutput, AudioOutputCallback,
+        StreamConfig,
+    },
+    timestamp::{self, Timestamp},
+    SendEverywhereButOnWeb,
+};
 
 use super::{error::AsioError, stream::AsioStream};
 
-
-
+/// The ASIO device.
 #[derive(Clone)]
 pub struct AsioDevice {
     driver: Arc<asio::Driver>,
@@ -19,6 +31,7 @@ pub struct AsioDevice {
 }
 
 impl AsioDevice {
+    /// Create a new ASIO device.
     pub fn new(driver: Arc<asio::Driver>) -> Result<Self, AsioError> {
         let is_input = driver.channels()?.ins > 0;
         let is_output = driver.channels()?.outs > 0;
@@ -33,19 +46,20 @@ impl AsioDevice {
             input: None,
             output: None,
         }));
-        Ok(AsioDevice { driver, device_type, asio_streams })
+        Ok(AsioDevice {
+            driver,
+            device_type,
+            asio_streams,
+        })
     }
 
+    /// Create an input stream with the given configuration.
     fn create_input_stream(&self, stream_config: StreamConfig) -> Result<usize, AsioError> {
-
         let num_channels = stream_config.channels as usize;
         let buffer_size = match stream_config.buffer_size_range {
-            (Some(min), Some(max)) if min == max => {
-                Some(min as i32)
-            }
+            (Some(min), Some(max)) if min == max => Some(min as i32),
 
-
-            _ => None
+            _ => None,
         };
 
         self.driver.set_sample_rate(stream_config.samplerate)?;
@@ -66,21 +80,17 @@ impl AsioDevice {
                         *streams = new_streams;
                         bs
                     })
-                    .map_err(|e| {
-                        AsioError::BackendError(e)
-                    })
+                    .map_err(|e| AsioError::BackendError(e))
             }
         }
-        
     }
 
+    /// Creates an output stream with the given configuration.
     fn create_output_stream(&self, stream_config: StreamConfig) -> Result<usize, AsioError> {
         let num_channels = stream_config.channels as usize;
         let buffer_size = match stream_config.buffer_size_range {
-            (Some(min), Some(max)) if min == max => {
-                Some(min as i32)
-            }
-            _ => None
+            (Some(min), Some(max)) if min == max => Some(min as i32),
+            _ => None,
         };
 
         self.driver.set_sample_rate(stream_config.samplerate)?;
@@ -101,9 +111,7 @@ impl AsioDevice {
                         *streams = new_streams;
                         bs
                     })
-                    .map_err(|e| {
-                        AsioError::BackendError(e)
-                    })
+                    .map_err(|e| AsioError::BackendError(e))
             }
         }
     }
@@ -121,7 +129,26 @@ impl AudioDevice for AsioDevice {
     }
 
     fn is_config_supported(&self, config: &StreamConfig) -> bool {
-        todo!()
+        let sample_rate = config.samplerate;
+        self.driver.can_sample_rate(sample_rate).unwrap_or(false)
+            && self.driver.channels().map_or(false, |channels| {
+                let num_channels = config.channels as i32;
+                match self.device_type {
+                    DeviceType::Input => channels.ins >= num_channels,
+                    DeviceType::Output => channels.outs >= num_channels,
+                    DeviceType::Duplex => {
+                        channels.ins >= num_channels && channels.outs >= num_channels
+                    }
+                }
+            })
+            && self.driver.buffersize_range().map_or(false, |(min, max)| {
+                match config.buffer_size_range {
+                    (Some(min_config), Some(max_config)) => {
+                        min_config >= min as usize && max_config <= max as usize
+                    }
+                    _ => false,
+                }
+            })
     }
 
     fn enumerate_configurations(&self) -> Option<impl IntoIterator<Item = StreamConfig>> {
@@ -130,11 +157,11 @@ impl AudioDevice for AsioDevice {
 }
 
 impl AudioInputDevice for AsioDevice {
+    type StreamHandle<Callback: AudioInputCallback> = AsioStream<Callback>;
+
     fn input_channel_map(&self) -> impl Iterator<Item = Channel> {
         [].into_iter()
     }
-
-    type StreamHandle<Callback: AudioInputCallback> = AsioStream<Callback>;
 
     fn default_input_config(&self) -> Result<StreamConfig, Self::Error> {
         let channels = self.driver.channels()?.ins as u32;
@@ -143,7 +170,10 @@ impl AudioInputDevice for AsioDevice {
         Ok(StreamConfig {
             channels,
             samplerate,
-            buffer_size_range: (Some(min_buffer_size as usize), Some(max_buffer_size as usize)),
+            buffer_size_range: (
+                Some(min_buffer_size as usize),
+                Some(max_buffer_size as usize),
+            ),
             exclusive: false,
         })
     }
@@ -151,7 +181,7 @@ impl AudioInputDevice for AsioDevice {
     fn create_input_stream<Callback: SendEverywhereButOnWeb + AudioInputCallback>(
         &self,
         stream_config: StreamConfig,
-        mut callback: Callback,
+        callback: Callback,
     ) -> Result<Self::StreamHandle<Callback>, Self::Error> {
         let input_data_type = self.driver.input_data_type()?;
 
@@ -162,100 +192,60 @@ impl AudioInputDevice for AsioDevice {
 
         let mut buffer = vec![0.0f32; num_samples];
 
-        let asio_streams = self.asio_streams.clone();
+        let mut streams = self.asio_streams.lock().unwrap();
+        let input_stream = streams.input.take().ok_or(AsioError::MultipleStreams)?;
 
-        let stream_playing = Arc::new(AtomicBool::new(false));
-        let playing = Arc::clone(&stream_playing);
+        let (tx, rx) = oneshot::channel::<oneshot::Sender<Callback>>();
+        let mut callback = Some(callback);
 
         let callback_id = self.driver.add_callback(move |callback_info| unsafe {
-            let streams = asio_streams.lock().unwrap();
-            let asio_stream = match &streams.input {
-                Some(asio_stream) => asio_stream,
-                None => return
-            };
-
+            if let Ok(sender) = rx.try_recv() {
+                sender.send(callback.take().unwrap()).unwrap();
+                return;
+            }
 
             let buffer_index = callback_info.buffer_index as usize;
-
-            unsafe fn create_buffer<'a, SampleType: Copy>(
-                asio_stream: &asio::AsioStream,
-                buffer: &'a mut [f32],
-                buffer_index: usize,
-                num_channels: usize,
-                from_endian: impl Fn(SampleType) -> SampleType,
-                to_f32: impl Fn(SampleType) -> f32,
-            ) -> AudioRef<'a, f32> {
-                
-                
-                for channel_index in 0..num_channels {
-                    let channel_buffer = asio_channel_slice::<SampleType>(asio_stream, buffer_index, channel_index);
-                    for (frame, asio_sample) in buffer.chunks_mut(num_channels).zip(channel_buffer) {
-                        frame[channel_index] = to_f32(from_endian(*asio_sample));
-                    }
-                }
-                AudioRef::from_interleaved(buffer, num_channels).unwrap()
-            }
-            
-
-            let audio_buffer = match &input_data_type {
-                asio::AsioSampleType::ASIOSTInt16MSB => {
-                    create_buffer(&asio_stream, &mut buffer, buffer_index, num_channels, from_be, i16_to_f32)
-                },
-                asio::AsioSampleType::ASIOSTInt16LSB => {
-                    create_buffer(&asio_stream, &mut buffer, buffer_index, num_channels, from_le, i16_to_f32)
-                },
-                asio::AsioSampleType::ASIOSTInt24MSB => {
-                    create_buffer(&asio_stream, &mut buffer, buffer_index, num_channels, from_be, i24_to_f32)
-                },
-                asio::AsioSampleType::ASIOSTInt24LSB => {
-                    create_buffer(&asio_stream, &mut buffer, buffer_index, num_channels, from_le, i24_to_f32)
-                },
-                asio::AsioSampleType::ASIOSTInt32MSB => {
-                    create_buffer(&asio_stream, &mut buffer, buffer_index, num_channels, from_be, i32_to_f32)
-                },
-                asio::AsioSampleType::ASIOSTInt32LSB => {
-                    create_buffer(&asio_stream, &mut buffer, buffer_index, num_channels, from_le, i32_to_f32)
-                },
-                asio::AsioSampleType::ASIOSTFloat32MSB => {
-                    create_buffer::<u32>(&asio_stream, &mut buffer, buffer_index, num_channels, from_be, f32::from_bits)
-                },
-                asio::AsioSampleType::ASIOSTFloat32LSB => {
-                    create_buffer::<u32>(&asio_stream, &mut buffer, buffer_index, num_channels, from_le, f32::from_bits)
-                },
-                // asio::AsioSampleType::ASIOSTFloat64MSB => todo!(),
-                // asio::AsioSampleType::ASIOSTFloat64LSB => todo!(),
-                unsupported_format => unreachable!(
-                    "returned with unsupported format {:?}",
-                    unsupported_format
-                ),
-            };
 
             let timestamp = Timestamp {
                 samplerate: 41000.0,
                 counter: 0,
             };
+
             let context = AudioCallbackContext {
                 stream_config,
                 timestamp,
             };
-            let input = AudioInput {
-                timestamp,
-                buffer: audio_buffer,
-            };
 
-            callback.on_input_data(context, input);
+            let input = create_input(
+                &input_data_type,
+                &input_stream,
+                &mut buffer,
+                buffer_index,
+                num_channels,
+                timestamp,
+            );
+
+            if let Some(callback) = &mut callback {
+                callback.on_input_data(context, input);
+            }
         });
 
-        Ok(AsioStream::new(playing, callback_id))
+        self.driver.start()?;
+
+        Ok(AsioStream {
+            driver: self.driver.clone(),
+            callback_id,
+            callback_retrieve: tx,
+        })
     }
 }
 
 impl AudioOutputDevice for AsioDevice {
+    type StreamHandle<Callback: AudioOutputCallback> = AsioStream<Callback>;
+
     fn output_channel_map(&self) -> impl Iterator<Item = Channel> {
         [].into_iter()
     }
-
-    type StreamHandle<Callback: AudioOutputCallback> = AsioStream<Callback>;
 
     fn default_output_config(&self) -> Result<StreamConfig, Self::Error> {
         let channels = self.driver.channels()?.outs as u32;
@@ -264,7 +254,10 @@ impl AudioOutputDevice for AsioDevice {
         Ok(StreamConfig {
             channels,
             samplerate,
-            buffer_size_range: (Some(min_buffer_size as usize), Some(max_buffer_size as usize)),
+            buffer_size_range: (
+                Some(min_buffer_size as usize),
+                Some(max_buffer_size as usize),
+            ),
             exclusive: false,
         })
     }
@@ -272,7 +265,7 @@ impl AudioOutputDevice for AsioDevice {
     fn create_output_stream<Callback: SendEverywhereButOnWeb + AudioOutputCallback>(
         &self,
         stream_config: StreamConfig,
-        mut callback: Callback,
+        callback: Callback,
     ) -> Result<Self::StreamHandle<Callback>, Self::Error> {
         let output_data_type = self.driver.output_data_type()?;
 
@@ -283,96 +276,57 @@ impl AudioOutputDevice for AsioDevice {
 
         let mut buffer = vec![0.0f32; num_samples];
 
-        let asio_streams = self.asio_streams.clone();
+        let mut streams = self.asio_streams.lock().unwrap();
+        let output_stream = streams.output.take().ok_or(AsioError::MultipleStreams)?;
 
-        let stream_playing = Arc::new(AtomicBool::new(false));
-        let playing = Arc::clone(&stream_playing);
+        let (tx, rx) = oneshot::channel::<oneshot::Sender<Callback>>();
+        let mut callback = Some(callback);
 
         let callback_id = self.driver.add_callback(move |callback_info| unsafe {
-            let streams = asio_streams.lock().unwrap();
-            let asio_stream = match &streams.output {
-                Some(asio_stream) => asio_stream,
-                None => return
-            };
+            if let Ok(sender) = rx.try_recv() {
+                sender.send(callback.take().unwrap()).unwrap();
+                return;
+            }
 
             let buffer_index = callback_info.buffer_index as usize;
-
-            unsafe fn create_buffer<'a, SampleType: Copy>(
-                asio_stream: &asio::AsioStream,
-                buffer: &'a mut [f32],
-                buffer_index: usize,
-                num_channels: usize,
-                to_endian: impl Fn(SampleType) -> SampleType,
-                from_f32: impl Fn(f32) -> SampleType,
-            ) -> AudioMut<'a, f32> {
-                
-                
-                for channel_index in 0..num_channels {
-                    let channel_buffer = asio_channel_slice_mut::<SampleType>(asio_stream, buffer_index, channel_index);
-                    for (frame, asio_sample) in buffer.chunks_mut(num_channels).zip(channel_buffer) {
-                        *asio_sample = to_endian(from_f32(frame[channel_index]));
-                    }
-                }
-                AudioMut::from_interleaved_mut(buffer, num_channels).unwrap()
-            }
-            
-
-            let audio_buffer = match &output_data_type {
-                asio::AsioSampleType::ASIOSTInt16MSB => {
-                    create_buffer(&asio_stream, &mut buffer, buffer_index, num_channels, to_be, f32_to_i16)
-                },
-                asio::AsioSampleType::ASIOSTInt16LSB => {
-                    create_buffer(&asio_stream, &mut buffer, buffer_index, num_channels, to_le, f32_to_i16)
-                },
-                asio::AsioSampleType::ASIOSTInt24MSB => {
-                    create_buffer(&asio_stream, &mut buffer, buffer_index, num_channels, to_be, f32_to_i24)
-                },
-                asio::AsioSampleType::ASIOSTInt24LSB => {
-                    create_buffer(&asio_stream, &mut buffer, buffer_index, num_channels, to_le, f32_to_i24)
-                },
-                asio::AsioSampleType::ASIOSTInt32MSB => {
-                    create_buffer(&asio_stream, &mut buffer, buffer_index, num_channels, to_be, f32_to_i32)
-                },
-                asio::AsioSampleType::ASIOSTInt32LSB => {
-                    create_buffer(&asio_stream, &mut buffer, buffer_index, num_channels, to_le, f32_to_i32)
-                },
-                asio::AsioSampleType::ASIOSTFloat32MSB => {
-                    create_buffer::<u32>(&asio_stream, &mut buffer, buffer_index, num_channels, to_be, f32::to_bits)
-                },
-                asio::AsioSampleType::ASIOSTFloat32LSB => {
-                    create_buffer::<u32>(&asio_stream, &mut buffer, buffer_index, num_channels, to_le, f32::to_bits)
-                },
-                // asio::AsioSampleType::ASIOSTFloat64MSB => todo!(),
-                // asio::AsioSampleType::ASIOSTFloat64LSB => todo!(),
-                unsupported_format => unreachable!(
-                    "returned with unsupported format {:?}",
-                    unsupported_format
-                ),
-            };
 
             let timestamp = Timestamp {
                 samplerate: 41000.0,
                 counter: 0,
             };
+
             let context = AudioCallbackContext {
                 stream_config,
                 timestamp,
             };
-            let output = AudioOutput {
-                timestamp,
-                buffer: audio_buffer,
-            };
 
-            callback.on_output_data(context, output);
+            let output = create_output(
+                &output_data_type,
+                &output_stream,
+                &mut buffer,
+                buffer_index,
+                num_channels,
+                timestamp,
+            );
+
+            if let Some(callback) = &mut callback {
+                callback.on_output_data(context, output);
+            }
         });
 
         self.driver.start()?;
 
-        Ok(AsioStream::new(playing, callback_id))
+        Ok(AsioStream {
+            driver: self.driver.clone(),
+            callback_id,
+            callback_retrieve: tx,
+        })
     }
 }
 
 impl AudioDuplexDevice for AsioDevice {
+    type StreamHandle<Callback: AudioDuplexCallback> = AsioStream<Callback>;
+
     fn default_duplex_config(&self) -> Result<StreamConfig, Self::Error> {
         let channels = self.driver.channels()?.ins as u32;
         let samplerate = self.driver.sample_rate()?;
@@ -380,7 +334,10 @@ impl AudioDuplexDevice for AsioDevice {
         Ok(StreamConfig {
             channels,
             samplerate,
-            buffer_size_range: (Some(min_buffer_size as usize), Some(max_buffer_size as usize)),
+            buffer_size_range: (
+                Some(min_buffer_size as usize),
+                Some(max_buffer_size as usize),
+            ),
             exclusive: false,
         })
     }
@@ -390,13 +347,283 @@ impl AudioDuplexDevice for AsioDevice {
         stream_config: StreamConfig,
         callback: Callback,
     ) -> Result<Self::StreamHandle<Callback>, Self::Error> {
-        todo!()
+        let output_data_type = self.driver.output_data_type()?;
+        let input_data_type = self.driver.input_data_type()?;
+
+        let num_channels = stream_config.channels as usize;
+
+        // This creates both input and output streams if available
+        let buffer_size = self.create_output_stream(stream_config)?;
+        let num_samples = buffer_size * num_channels;
+
+        let mut input_buffer = vec![0.0f32; num_samples];
+        let mut output_buffer = vec![0.0f32; num_samples];
+
+        let mut streams = self.asio_streams.lock().unwrap();
+        let output_stream = streams.output.take().ok_or(AsioError::MultipleStreams)?;
+        let input_stream = streams.input.take().ok_or(AsioError::MultipleStreams)?;
+
+        let (tx, rx) = oneshot::channel::<oneshot::Sender<Callback>>();
+        let mut callback = Some(callback);
+
+        let callback_id = self.driver.add_callback(move |callback_info| unsafe {
+            if let Ok(sender) = rx.try_recv() {
+                sender.send(callback.take().unwrap()).unwrap();
+                return;
+            }
+
+            let buffer_index = callback_info.buffer_index as usize;
+
+            let timestamp = Timestamp {
+                samplerate: 41000.0,
+                counter: 0,
+            };
+
+            let input = create_input(
+                &input_data_type,
+                &input_stream,
+                &mut input_buffer,
+                buffer_index,
+                num_channels,
+                timestamp,
+            );
+
+            let output = create_output(
+                &output_data_type,
+                &output_stream,
+                &mut output_buffer,
+                buffer_index,
+                num_channels,
+                timestamp,
+            );
+
+            let context = AudioCallbackContext {
+                stream_config,
+                timestamp,
+            };
+
+            if let Some(callback) = &mut callback {
+                callback.on_audio_data(context, input, output);
+            }
+        });
+
+        self.driver.start()?;
+
+        Ok(AsioStream {
+            driver: self.driver.clone(),
+            callback_id,
+            callback_retrieve: tx,
+        })
     }
-    
-    type StreamHandle<Callback: AudioDuplexCallback> = AsioStream<Callback>;
 }
 
 // HELPERS
+
+/// Create an `AudioOutput` from the ASIO stream and the buffer.
+unsafe fn create_output<'a>(
+    output_data_type: &asio::AsioSampleType,
+    asio_stream: &asio::AsioStream,
+    buffer: &'a mut [f32],
+    buffer_index: usize,
+    num_channels: usize,
+    timestamp: timestamp::Timestamp,
+) -> AudioOutput<'a, f32> {
+    let audio_output_buffer = match output_data_type {
+        asio::AsioSampleType::ASIOSTInt16MSB => create_output_buffer(
+            &asio_stream,
+            buffer,
+            buffer_index,
+            num_channels,
+            to_be,
+            f32_to_i16,
+        ),
+        asio::AsioSampleType::ASIOSTInt16LSB => create_output_buffer(
+            &asio_stream,
+            buffer,
+            buffer_index,
+            num_channels,
+            to_le,
+            f32_to_i16,
+        ),
+        asio::AsioSampleType::ASIOSTInt24MSB => create_output_buffer(
+            &asio_stream,
+            buffer,
+            buffer_index,
+            num_channels,
+            to_be,
+            f32_to_i24,
+        ),
+        asio::AsioSampleType::ASIOSTInt24LSB => create_output_buffer(
+            &asio_stream,
+            buffer,
+            buffer_index,
+            num_channels,
+            to_le,
+            f32_to_i24,
+        ),
+        asio::AsioSampleType::ASIOSTInt32MSB => create_output_buffer(
+            &asio_stream,
+            buffer,
+            buffer_index,
+            num_channels,
+            to_be,
+            f32_to_i32,
+        ),
+        asio::AsioSampleType::ASIOSTInt32LSB => create_output_buffer(
+            &asio_stream,
+            buffer,
+            buffer_index,
+            num_channels,
+            to_le,
+            f32_to_i32,
+        ),
+        asio::AsioSampleType::ASIOSTFloat32MSB => create_output_buffer::<u32>(
+            &asio_stream,
+            buffer,
+            buffer_index,
+            num_channels,
+            to_be,
+            f32::to_bits,
+        ),
+        asio::AsioSampleType::ASIOSTFloat32LSB => create_output_buffer::<u32>(
+            &asio_stream,
+            buffer,
+            buffer_index,
+            num_channels,
+            to_le,
+            f32::to_bits,
+        ),
+        unsupported_format => {
+            unreachable!("returned with unsupported format {:?}", unsupported_format)
+        }
+    };
+
+    AudioOutput {
+        timestamp,
+        buffer: audio_output_buffer,
+    }
+}
+
+/// Create an `AudioInput` from the ASIO stream and the buffer.
+unsafe fn create_input<'a>(
+    input_data_type: &asio::AsioSampleType,
+    asio_stream: &asio::AsioStream,
+    buffer: &'a mut [f32],
+    buffer_index: usize,
+    num_channels: usize,
+    timestamp: timestamp::Timestamp,
+) -> AudioInput<'a, f32> {
+    let audio_input_buffer = match input_data_type {
+        asio::AsioSampleType::ASIOSTInt16MSB => create_input_buffer(
+            &asio_stream,
+            buffer,
+            buffer_index,
+            num_channels,
+            from_be,
+            i16_to_f32,
+        ),
+        asio::AsioSampleType::ASIOSTInt16LSB => create_input_buffer(
+            &asio_stream,
+            buffer,
+            buffer_index,
+            num_channels,
+            from_le,
+            i16_to_f32,
+        ),
+        asio::AsioSampleType::ASIOSTInt24MSB => create_input_buffer(
+            &asio_stream,
+            buffer,
+            buffer_index,
+            num_channels,
+            from_be,
+            i24_to_f32,
+        ),
+        asio::AsioSampleType::ASIOSTInt24LSB => create_input_buffer(
+            &asio_stream,
+            buffer,
+            buffer_index,
+            num_channels,
+            from_le,
+            i24_to_f32,
+        ),
+        asio::AsioSampleType::ASIOSTInt32MSB => create_input_buffer(
+            &asio_stream,
+            buffer,
+            buffer_index,
+            num_channels,
+            from_be,
+            i32_to_f32,
+        ),
+        asio::AsioSampleType::ASIOSTInt32LSB => create_input_buffer(
+            &asio_stream,
+            buffer,
+            buffer_index,
+            num_channels,
+            from_le,
+            i32_to_f32,
+        ),
+        asio::AsioSampleType::ASIOSTFloat32MSB => create_input_buffer::<u32>(
+            &asio_stream,
+            buffer,
+            buffer_index,
+            num_channels,
+            from_be,
+            f32::from_bits,
+        ),
+        asio::AsioSampleType::ASIOSTFloat32LSB => create_input_buffer::<u32>(
+            &asio_stream,
+            buffer,
+            buffer_index,
+            num_channels,
+            from_le,
+            f32::from_bits,
+        ),
+        unsupported_format => {
+            unreachable!("returned with unsupported format {:?}", unsupported_format)
+        }
+    };
+
+    AudioInput {
+        timestamp,
+        buffer: audio_input_buffer,
+    }
+}
+
+unsafe fn create_input_buffer<'a, SampleType: Copy>(
+    asio_stream: &asio::AsioStream,
+    buffer: &'a mut [f32],
+    buffer_index: usize,
+    num_channels: usize,
+    from_endian: impl Fn(SampleType) -> SampleType,
+    to_f32: impl Fn(SampleType) -> f32,
+) -> AudioRef<'a, f32> {
+    for channel_index in 0..num_channels {
+        let channel_buffer =
+            asio_channel_slice::<SampleType>(asio_stream, buffer_index, channel_index);
+        for (frame, asio_sample) in buffer.chunks_mut(num_channels).zip(channel_buffer) {
+            frame[channel_index] = to_f32(from_endian(*asio_sample));
+        }
+    }
+    AudioRef::from_interleaved(buffer, num_channels).unwrap()
+}
+
+unsafe fn create_output_buffer<'a, SampleType: Copy>(
+    asio_stream: &asio::AsioStream,
+    buffer: &'a mut [f32],
+    buffer_index: usize,
+    num_channels: usize,
+    to_endian: impl Fn(SampleType) -> SampleType,
+    from_f32: impl Fn(f32) -> SampleType,
+) -> AudioMut<'a, f32> {
+    for channel_index in 0..num_channels {
+        let channel_buffer =
+            asio_channel_slice_mut::<SampleType>(asio_stream, buffer_index, channel_index);
+        for (frame, asio_sample) in buffer.chunks_mut(num_channels).zip(channel_buffer) {
+            *asio_sample = to_endian(from_f32(frame[channel_index]));
+        }
+    }
+    AudioMut::from_interleaved_mut(buffer, num_channels).unwrap()
+}
 
 unsafe fn asio_channel_slice<T>(
     asio_stream: &asio::AsioStream,
@@ -469,7 +696,6 @@ fn f32_to_i32(f: f32) -> i32 {
 fn f32_to_i24(f: f32) -> i32 {
     (f * 0x7FFFFF as f32) as i32
 }
-
 
 // fn asio_ns_to_double(val: sys::bindings::asio_import::ASIOTimeStamp) -> f64 {
 //     let two_raised_to_32 = 4294967296.0;
