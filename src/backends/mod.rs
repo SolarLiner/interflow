@@ -19,6 +19,9 @@ pub mod coreaudio;
 #[cfg(os_wasapi)]
 pub mod wasapi;
 
+#[cfg(feature = "pipewire")]
+pub mod pipewire;
+
 /// Returns the default driver.
 ///
 /// "Default" here means that it is a supported driver that is available on the platform.
