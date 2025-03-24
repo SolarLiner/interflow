@@ -1,52 +1,33 @@
 use crate::backends::pipewire::error::PipewireError;
-use crate::{AudioDevice, Channel, DeviceType, StreamConfig};
+use crate::DeviceType;
+use libspa::utils::dict::DictRef;
 use pipewire::context::Context;
-use pipewire::core::Core;
 use pipewire::main_loop::MainLoop;
-use std::borrow::Cow;
+use pipewire::registry::GlobalObject;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-pub struct PipewireDevice {
-    pub(super) target_node: Option<u32>,
-    pub device_type: DeviceType,
+fn get_device_type(object: &GlobalObject<&DictRef>) -> Option<DeviceType> {
+    fn is_input(media_class: &str) -> bool {
+        let str = media_class.trim().to_lowercase();
+        str == "audio/source"
+    }
+
+    fn is_output(str: &str) -> bool {
+        let str = str.trim().to_lowercase();
+        str == "audio/sink"
+    }
+
+    let media_class = object.props?.get("media.class")?;
+    Some(match (is_input(media_class), is_output(media_class)) {
+        (true, true) => DeviceType::Duplex,
+        (true, _) => DeviceType::Input,
+        (_, true) => DeviceType::Output,
+        _ => return None,
+    })
 }
 
-impl AudioDevice for PipewireDevice {
-    type Error = PipewireError;
-
-    fn name(&self) -> Cow<str> {
-        let Some(node_id) = self.target_node else {
-            return Cow::Borrowed("Default");
-        };
-        match get_node_name(node_id) {
-            Ok(Some(name)) => Cow::Owned(name),
-            Ok(None) => Cow::Borrowed("Unknown"),
-            Err(e) => {
-                log::error!("Failed to get device name: {}", e);
-                Cow::Borrowed("Error")
-            }
-        }
-    }
-
-    fn device_type(&self) -> DeviceType {
-        self.device_type
-    }
-
-    fn channel_map(&self) -> impl IntoIterator<Item = Channel> {
-        []
-    }
-
-    fn is_config_supported(&self, config: &StreamConfig) -> bool {
-        todo!()
-    }
-
-    fn enumerate_configurations(&self) -> Option<impl IntoIterator<Item = StreamConfig>> {
-        Some([])
-    }
-}
-
-fn get_node_name(node_id: u32) -> Result<Option<String>, PipewireError> {
+pub fn get_devices() -> Result<Vec<(u32, DeviceType)>, PipewireError> {
     let mainloop = MainLoop::new(None)?;
     let context = Context::new(&mainloop)?;
     let core = context.connect(None)?;
@@ -74,18 +55,20 @@ fn get_node_name(node_id: u32) -> Result<Option<String>, PipewireError> {
         })
         .register();
 
-    let data = Rc::new(RefCell::new(None));
+    let data = Rc::new(RefCell::new(Vec::new()));
     let _listener_reg = registry
         .add_listener_local()
         .global({
             let data = data.clone();
             move |global| {
-                if node_id == global.id {
-                    if let Some(props) = global.props {
-                        if let Some(name) = props.get("node.name") {
-                            data.borrow_mut().replace(name.to_string());
-                        }
-                    }
+                log::debug!(
+                    "object: id:{} type:{}/{}",
+                    global.id,
+                    global.type_,
+                    global.version
+                );
+                if let Some(device_type) = get_device_type(global) {
+                    data.borrow_mut().push((global.id, device_type));
                 }
             }
         })
@@ -97,4 +80,12 @@ fn get_node_name(node_id: u32) -> Result<Option<String>, PipewireError> {
     drop(_listener_core);
     drop(_listener_reg);
     Ok(Rc::into_inner(data).unwrap().into_inner())
+}
+
+pub fn get_default_node_for(device_type: DeviceType) -> u32 {
+    match device_type {
+        DeviceType::Input => 0,
+        DeviceType::Output => 1,
+        DeviceType::Duplex => 2,
+    }
 }
