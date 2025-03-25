@@ -43,7 +43,7 @@ pub trait Bitset: Sized {
 
     /// Returns an iterator of indices for which the value has been set `true`.
     fn indices(&self) -> impl IntoIterator<Item = usize> {
-        (0..self.capacity()).filter_map(|i| self.get_index(i).then_some(i))
+        (0..self.capacity()).filter(|i| self.get_index(*i))
     }
     /// Count the number of `true` elements in this bit set.
     fn count(&self) -> usize {
@@ -64,7 +64,14 @@ pub trait Bitset: Sized {
     }
 }
 
+/// Trait for bitsets that can be created from indices
 pub trait CreateBitset: Bitset {
+    /// Create a [`Self`] from the given indices
+    ///
+    /// # Arguments
+    ///
+    /// - `indices`: [`IntoIterator`] implementation that returns [`usize`] values corresponding to the indices to
+    ///    set in the bitset.
     fn from_indices(indices: impl IntoIterator<Item = usize>) -> Self;
 }
 

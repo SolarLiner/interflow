@@ -137,6 +137,9 @@ pub trait AudioInputDevice: AudioDevice {
     /// externally, or stop it completely and give back ownership of the callback with
     /// [`AudioStreamHandle::eject`].
     type StreamHandle<Callback: AudioInputCallback>: AudioStreamHandle<Callback>;
+
+    /// Return the default configuration for this device, if there is one. The returned configuration *must* be
+    /// valid according to [`Self::is_config_supported`].
     fn default_input_config(&self) -> Result<StreamConfig, Self::Error>;
 
     /// Creates an input stream with the provided stream configuration. For this call to be
@@ -151,6 +154,11 @@ pub trait AudioInputDevice: AudioDevice {
         callback: Callback,
     ) -> Result<Self::StreamHandle<Callback>, Self::Error>;
 
+    /// Create an input stream with the default configuration (as returned by [`Self::default_input_config`]).
+    ///
+    /// # Arguments
+    ///
+    /// - `callback`: Callback to process the audio input
     fn default_input_stream<Callback: SendEverywhereButOnWeb + AudioInputCallback>(
         &self,
         callback: Callback,
@@ -168,6 +176,8 @@ pub trait AudioOutputDevice: AudioDevice {
     /// externally, or stop it completely and give back ownership of the callback with
     /// [`AudioStreamHandle::eject`].
     type StreamHandle<Callback: AudioOutputCallback>: AudioStreamHandle<Callback>;
+
+    /// Return the default output configuration for this device, if it exists
     fn default_output_config(&self) -> Result<StreamConfig, Self::Error>;
 
     /// Creates an output stream with the provided stream configuration. For this call to be
@@ -182,6 +192,11 @@ pub trait AudioOutputDevice: AudioDevice {
         callback: Callback,
     ) -> Result<Self::StreamHandle<Callback>, Self::Error>;
 
+    /// Create an output stream using the default configuration as returned by [`Self::default_output_config`].
+    ///
+    /// # Arguments
+    ///
+    /// - `callback`: Output callback to generate audio data with.
     fn default_output_stream<Callback: SendEverywhereButOnWeb + AudioOutputCallback>(
         &self,
         callback: Callback,

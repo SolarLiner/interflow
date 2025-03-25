@@ -7,12 +7,12 @@ use crate::{
 use alsa::{pcm, PCM};
 use std::borrow::Cow;
 use std::fmt;
-use std::sync::Arc;
+use std::rc::Rc;
 
 /// Type of ALSA devices.
 #[derive(Clone)]
 pub struct AlsaDevice {
-    pub(super) pcm: Arc<PCM>,
+    pub(super) pcm: Rc<PCM>,
     pub(super) name: String,
     pub(super) direction: alsa::Direction,
 }
@@ -99,7 +99,7 @@ impl AlsaDevice {
             DeviceType::Output => alsa::Direction::Playback,
             _ => return Ok(None),
         };
-        let pcm = Arc::new(PCM::new("default", direction, true)?);
+        let pcm = Rc::new(PCM::new("default", direction, true)?);
         Ok(Some(Self {
             pcm,
             direction,
@@ -109,7 +109,7 @@ impl AlsaDevice {
 
     pub(super) fn new(name: &str, direction: alsa::Direction) -> Result<Self, alsa::Error> {
         let pcm = PCM::new(name, direction, true)?;
-        let pcm = Arc::new(pcm);
+        let pcm = Rc::new(pcm);
         Ok(Self {
             name: name.to_string(),
             direction,
