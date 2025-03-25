@@ -350,6 +350,12 @@ where
         let storage = raw.reversed_axes();
         Some(Self { storage })
     }
+
+    pub fn from_noninterleaved(data: &'a [T], channels: usize) -> Option<Self> {
+        let buffer_size = data.len() / channels;
+        let storage = ArrayView2::from_shape((channels, buffer_size), data).ok()?;
+        Some(Self { storage })
+    }
 }
 
 impl<'a, T: 'a> AudioMut<'a, T> {
@@ -364,6 +370,12 @@ impl<'a, T: 'a> AudioMut<'a, T> {
         let buffer_size = data.len() / channels;
         let raw = ArrayViewMut2::from_shape((buffer_size, channels), data).ok()?;
         let storage = raw.reversed_axes();
+        Some(Self { storage })
+    }
+
+    pub fn from_noninterleaved_mut(data: &'a mut [T], channels: usize) -> Option<Self> {
+        let buffer_size = data.len() / channels;
+        let storage = ArrayViewMut2::from_shape((channels, buffer_size), data).ok()?;
         Some(Self { storage })
     }
 }

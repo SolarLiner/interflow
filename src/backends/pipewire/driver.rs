@@ -23,6 +23,7 @@ impl AudioDriver for PipewireDriver {
         Ok(Some(PipewireDevice {
             target_node: None,
             device_type,
+            stream_name: Cow::Borrowed("Interflow stream"),
         }))
     }
 
@@ -32,6 +33,7 @@ impl AudioDriver for PipewireDriver {
             .map(|(id, device_type)| PipewireDevice {
                 target_node: Some(id),
                 device_type,
+                stream_name: Cow::Borrowed("Interflow stream"),
             }))
     }
 }

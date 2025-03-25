@@ -1,5 +1,9 @@
+use super::stream::StreamHandle;
 use crate::backends::pipewire::error::PipewireError;
-use crate::{AudioDevice, Channel, DeviceType, StreamConfig};
+use crate::{
+    AudioDevice, AudioOutputCallback, AudioOutputDevice, Channel, DeviceType,
+    SendEverywhereButOnWeb, StreamConfig,
+};
 use pipewire::context::Context;
 use pipewire::core::Core;
 use pipewire::main_loop::MainLoop;
@@ -10,6 +14,7 @@ use std::rc::Rc;
 pub struct PipewireDevice {
     pub(super) target_node: Option<u32>,
     pub device_type: DeviceType,
+    pub stream_name: Cow<'static, str>,
 }
 
 impl AudioDevice for PipewireDevice {
@@ -38,11 +43,38 @@ impl AudioDevice for PipewireDevice {
     }
 
     fn is_config_supported(&self, config: &StreamConfig) -> bool {
-        todo!()
+        true
     }
 
     fn enumerate_configurations(&self) -> Option<impl IntoIterator<Item = StreamConfig>> {
         Some([])
+    }
+}
+
+impl AudioOutputDevice for PipewireDevice {
+    type StreamHandle<Callback: AudioOutputCallback> = StreamHandle<Callback>;
+
+    fn default_output_config(&self) -> Result<StreamConfig, Self::Error> {
+        Ok(StreamConfig {
+            samplerate: 48000.0,
+            channels: 0b11,
+            exclusive: false,
+            buffer_size_range: (None, None),
+        })
+    }
+
+    fn create_output_stream<Callback: SendEverywhereButOnWeb + AudioOutputCallback>(
+        &self,
+        stream_config: StreamConfig,
+        callback: Callback,
+    ) -> Result<Self::StreamHandle<Callback>, Self::Error> {
+        StreamHandle::new(&self.stream_name, stream_config, callback)
+    }
+}
+
+impl PipewireDevice {
+    pub fn with_stream_name(&mut self, name: impl Into<Cow<'static, str>>) {
+        self.stream_name = name.into();
     }
 }
 
