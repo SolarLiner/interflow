@@ -174,7 +174,11 @@ impl<S: Data> AudioBufferBase<S> {
         })
     }
 
-    // Iterate over overlapping windows of this audio buffer.
+    /// Iterate over overlapping windows of this audio buffer.
+    ///
+    /// # Arguments
+    ///
+    /// - `size`: Size of the window
     pub fn windows(&self, size: usize) -> impl Iterator<Item = AudioRef<S::Elem>> {
         let mut i = 0;
         std::iter::from_fn(move || {

@@ -2,7 +2,6 @@
 //!
 //! This module includes a proxy for gathering an input audio stream, and optionally process it to resample it to the
 //! output sample rate.
-use crate::audio_buffer::AudioBuffer;
 use crate::audio_buffer::AudioRef;
 use crate::channel_map::Bitset;
 use crate::{
@@ -47,6 +46,8 @@ pub struct InputProxy {
 }
 
 impl InputProxy {
+    /// Create a new input proxy for transferring an input stream, resample it, and make it available in an output
+    /// stream.
     pub fn new() -> (
         Self,
         rtrb::Producer<u32>,
@@ -142,6 +143,7 @@ impl AudioInputCallback for InputProxy {
 #[error(transparent)]
 /// Represents errors that can occur during duplex stream operations.
 pub enum DuplexCallbackError<InputError, OutputError> {
+    /// No input channels given
     #[error("No input channels given")]
     NoInputChannels,
     /// An error occurred in the input stream
@@ -161,7 +163,7 @@ pub struct DuplexCallback<Callback> {
     storage_raw: Box<[f32]>,
     current_samplerate: u32,
     num_input_channels: usize,
-    pub resample_config: ResamplingChannelConfig,
+    resample_config: ResamplingChannelConfig,
 }
 
 impl<Callback> DuplexCallback<Callback> {
