@@ -1,7 +1,6 @@
 use crate::util::meter::PeakMeter;
 use crate::util::AtomicF32;
 use anyhow::Result;
-use interflow::duplex::AudioDuplexCallback;
 use interflow::prelude::*;
 use std::sync::Arc;
 mod util;
@@ -18,14 +17,9 @@ fn main() -> Result<()> {
     input_config.channels = 0b01;
     output_config.channels = 0b11;
     let value = Arc::new(AtomicF32::new(0.));
-    let stream = duplex::create_duplex_stream(
-        input,
-        input_config,
-        output,
-        output_config,
-        Loopback::new(44100., value.clone()),
-    )
-    .unwrap();
+    let config = DuplexStreamConfig::new(input_config, output_config);
+    let stream =
+        create_duplex_stream(input, output, Loopback::new(44100., value.clone()), config).unwrap();
     util::display_peakmeter(value)?;
     stream.eject().unwrap();
     Ok(())

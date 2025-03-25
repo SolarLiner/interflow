@@ -12,9 +12,9 @@ fn main() -> Result<()> {
     input_config.buffer_size_range = (Some(128), Some(512));
     let mut output_config = output.default_output_config().unwrap();
     output_config.buffer_size_range = (Some(128), Some(512));
+    let duplex_config = DuplexStreamConfig::new(input_config, output_config);
     let stream =
-        duplex::create_duplex_stream(input, input_config, output, output_config, RingMod::new())
-            .unwrap();
+        duplex::create_duplex_stream(input, output, RingMod::new(), duplex_config).unwrap();
     println!("Press Enter to stop");
     std::io::stdin().read_line(&mut String::new())?;
     stream.eject().unwrap();
