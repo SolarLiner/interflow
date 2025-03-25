@@ -5,7 +5,6 @@ use crate::{
     Channel, DeviceType, SendEverywhereButOnWeb, StreamConfig,
 };
 use pipewire::context::Context;
-use pipewire::core::Core;
 use pipewire::main_loop::MainLoop;
 use std::borrow::Cow;
 use std::cell::{Cell, RefCell};

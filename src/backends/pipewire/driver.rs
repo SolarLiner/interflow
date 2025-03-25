@@ -1,7 +1,7 @@
 use super::error::PipewireError;
 use crate::backends::pipewire::device::PipewireDevice;
 use crate::backends::pipewire::utils;
-use crate::{AudioDevice, AudioDriver, DeviceType};
+use crate::{AudioDriver, DeviceType};
 use std::borrow::Cow;
 use std::marker::PhantomData;
 

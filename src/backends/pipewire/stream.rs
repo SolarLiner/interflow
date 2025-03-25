@@ -1,4 +1,4 @@
-use crate::audio_buffer::{AudioBuffer, AudioMut, AudioRef};
+use crate::audio_buffer::{AudioMut, AudioRef};
 use crate::backends::pipewire::error::PipewireError;
 use crate::channel_map::Bitset;
 use crate::timestamp::Timestamp;
@@ -14,7 +14,7 @@ use pipewire::context::Context;
 use pipewire::keys;
 use pipewire::main_loop::{MainLoop, WeakMainLoop};
 use pipewire::properties::properties;
-use pipewire::stream::{Stream, StreamFlags, StreamListener};
+use pipewire::stream::{Stream, StreamFlags};
 use std::fmt;
 use std::fmt::Formatter;
 use std::thread::JoinHandle;
