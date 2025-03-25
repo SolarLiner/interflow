@@ -1,8 +1,8 @@
 use super::stream::StreamHandle;
 use crate::backends::pipewire::error::PipewireError;
 use crate::{
-    AudioDevice, AudioOutputCallback, AudioOutputDevice, Channel, DeviceType,
-    SendEverywhereButOnWeb, StreamConfig,
+    AudioDevice, AudioInputCallback, AudioInputDevice, AudioOutputCallback, AudioOutputDevice,
+    Channel, DeviceType, SendEverywhereButOnWeb, StreamConfig,
 };
 use pipewire::context::Context;
 use pipewire::core::Core;
@@ -51,6 +51,27 @@ impl AudioDevice for PipewireDevice {
     }
 }
 
+impl AudioInputDevice for PipewireDevice {
+    type StreamHandle<Callback: AudioInputCallback> = StreamHandle<Callback>;
+
+    fn default_input_config(&self) -> Result<StreamConfig, Self::Error> {
+        Ok(StreamConfig {
+            samplerate: 48000.0,
+            channels: 0b11,
+            exclusive: false,
+            buffer_size_range: (None, None),
+        })
+    }
+
+    fn create_input_stream<Callback: SendEverywhereButOnWeb + AudioInputCallback>(
+        &self,
+        stream_config: StreamConfig,
+        callback: Callback,
+    ) -> Result<Self::StreamHandle<Callback>, Self::Error> {
+        StreamHandle::new_input(&self.stream_name, stream_config, callback)
+    }
+}
+
 impl AudioOutputDevice for PipewireDevice {
     type StreamHandle<Callback: AudioOutputCallback> = StreamHandle<Callback>;
 
@@ -68,7 +89,7 @@ impl AudioOutputDevice for PipewireDevice {
         stream_config: StreamConfig,
         callback: Callback,
     ) -> Result<Self::StreamHandle<Callback>, Self::Error> {
-        StreamHandle::new(&self.stream_name, stream_config, callback)
+        StreamHandle::new_output(&self.stream_name, stream_config, callback)
     }
 }
 
