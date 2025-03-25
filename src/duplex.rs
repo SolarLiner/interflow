@@ -422,8 +422,8 @@ pub fn create_duplex_stream<
                 storage_raw: vec![0f32; 8192 * MAX_CHANNELS].into_boxed_slice(),
                 current_samplerate: 0,
                 num_input_channels: config.input.channels.count(),
-                resample_config: fixed_resample::ResamplingChannelConfig {
-                    capacity_seconds: 2.0 * config.target_latency_secs as f64,
+                resample_config: ResamplingChannelConfig {
+                    capacity_seconds: (2.0 * config.target_latency_secs as f64).max(0.5),
                     latency_seconds: config.target_latency_secs as f64,
                     subtract_resampler_delay: true,
                     quality: if config.high_quality_resampling {
