@@ -41,7 +41,7 @@ impl AudioDevice for PipewireDevice {
         []
     }
 
-    fn is_config_supported(&self, config: &StreamConfig) -> bool {
+    fn is_config_supported(&self, _config: &StreamConfig) -> bool {
         true
     }
 
