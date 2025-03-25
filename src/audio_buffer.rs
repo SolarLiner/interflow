@@ -96,6 +96,8 @@ where
             && self.storage.iter().eq(other.storage.iter())
     }
 
+    // Explicitely implementing `fn ne` may yield better performance with the shortcircuiting of the or operator
+    #[allow(clippy::partialeq_ne_impl)]
     fn ne(&self, other: &AudioBufferBase<S2>) -> bool {
         self.storage.shape() != other.storage.shape()
             || self.storage.iter().ne(other.storage.iter())
@@ -486,7 +488,7 @@ impl<T: Sample> AudioBuffer<T> {
     }
 }
 
-impl<'a, S: Data> AudioBufferBase<S>
+impl<S: Data> AudioBufferBase<S>
 where
     S::Elem: Sample,
 {
@@ -508,7 +510,7 @@ where
     }
 }
 
-impl<'a, S: DataMut<Elem: Sample>> AudioBufferBase<S> {
+impl<S: DataMut<Elem: Sample>> AudioBufferBase<S> {
     /// Change the amplitude of this buffer by the provided amplitude.
     ///
     /// See [`Sample::change_amplitude`] for more details.

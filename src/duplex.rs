@@ -1,3 +1,7 @@
+//! Module for simultaneous input/output audio processing
+//!
+//! This module includes a proxy for gathering an input audio stream, and optionally process it to resample it to the
+//! output sample rate.
 use crate::audio_buffer::AudioBuffer;
 use crate::channel_map::Bitset;
 use crate::{
@@ -29,8 +33,8 @@ pub trait AudioDuplexCallback: 'static + SendEverywhereButOnWeb {
 
 /// Type which handles both a duplex stream handle.
 pub struct DuplexStream<Callback, Error> {
-    input_stream: Box<dyn AudioStreamHandle<InputProxy, Error = Error>>,
-    output_stream: Box<dyn AudioStreamHandle<DuplexCallback<Callback>, Error = Error>>,
+    _input_stream: Box<dyn AudioStreamHandle<InputProxy, Error = Error>>,
+    _output_stream: Box<dyn AudioStreamHandle<DuplexCallback<Callback>, Error = Error>>,
 }
 
 /// Input proxy for transferring an input signal to a separate output callback to be processed as a duplex stream.
@@ -123,6 +127,7 @@ pub enum DuplexCallbackError<InputError, OutputError> {
     Other(Box<dyn Error>),
 }
 
+/// [`AudioOutputCallback`] implementation for which runs the provided [`AudioDuplexCallback`].
 pub struct DuplexCallback<Callback> {
     input: rtrb::Consumer<f32>,
     callback: Callback,
@@ -304,6 +309,7 @@ pub type DuplexStreamResult<In, Out, Callback> = Result<
 /// ).expect("Failed to create duplex stream");
 ///
 /// ```
+#[allow(clippy::type_complexity)] // Allowing because moving to a type alias would be just as complex
 pub fn create_duplex_stream<
     InputDevice: AudioInputDevice,
     OutputDevice: AudioOutputDevice,

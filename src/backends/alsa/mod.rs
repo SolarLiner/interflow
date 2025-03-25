@@ -5,7 +5,7 @@
 //! (PulseAudio, PipeWire) offer ALSA-compatible APIs so that older software can still access the
 //! audio devices through them.
 
-use crate::{AudioDevice, AudioDriver, DeviceType};
+use crate::{AudioDriver, DeviceType};
 use alsa::device_name::HintIter;
 use device::AlsaDevice;
 use std::borrow::Cow;
@@ -24,6 +24,7 @@ pub enum AlsaError {
     /// Error originates from ALSA itself.
     #[error("{0}")]
     BackendError(#[from] alsa::Error),
+    /// Error originates from I/O operations.
     #[error("I/O error: {0}")]
     IoError(#[from] nix::Error),
 }

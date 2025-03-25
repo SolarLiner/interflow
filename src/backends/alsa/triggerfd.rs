@@ -46,29 +46,11 @@ impl Drop for Receiver {
 }
 
 impl Receiver {
-    pub fn is_triggered(&self) -> Result<bool, nix::Error> {
-        let mut value = 0u64;
-        let size = size_of_val(&value);
-        let out = std::ptr::from_mut(&mut value).cast();
-        let ret = unsafe { libc::read(self.0, out, size) };
-        match (ret, value) {
-            (8, 1) => Ok(true),
-            (0, _) => Ok(false),
-            _ => Err(nix::Error::last()),
-        }
-    }
-
     pub fn as_pollfd(&self) -> libc::pollfd {
         libc::pollfd {
             fd: self.0,
             events: libc::POLLIN,
             revents: 0,
         }
-    }
-
-    pub fn alsa_poll(&self, timeout: i32) -> Result<bool, alsa::Error> {
-        let mut fds = [self.as_pollfd()];
-        let res = alsa::poll::poll(&mut fds, timeout)?;
-        Ok(res > 0)
     }
 }

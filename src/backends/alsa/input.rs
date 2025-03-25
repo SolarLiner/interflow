@@ -20,7 +20,7 @@ impl<Callback: 'static + Send + AudioInputCallback> AlsaStream<Callback> {
                 }
                 let buffer = AudioRef::from_interleaved(ctx.buffer, ctx.num_channels).unwrap();
                 let context = AudioCallbackContext {
-                    stream_config,
+                    stream_config: *ctx.config,
                     timestamp: *ctx.timestamp,
                 };
                 let input = AudioInput {
