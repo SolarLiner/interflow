@@ -19,7 +19,7 @@ pub mod coreaudio;
 #[cfg(os_wasapi)]
 pub mod wasapi;
 
-#[cfg(feature = "pipewire")]
+#[cfg(all(os_pipewire, feature = "pipewire"))]
 pub mod pipewire;
 
 /// Returns the default driver.
@@ -40,9 +40,9 @@ pub mod pipewire;
 #[cfg(any(os_alsa, os_coreaudio, os_wasapi))]
 #[allow(clippy::needless_return)]
 pub fn default_driver() -> impl AudioDriver {
-    #[cfg(feature = "pipewire")]
+    #[cfg(all(os_pipewire, feature = "pipewire"))]
     return pipewire::driver::PipewireDriver::new().unwrap();
-    #[cfg(all(not(feature = "pipewire"), os_alsa))]
+    #[cfg(all(not(all(os_pipewire, feature = "pipewire")), os_alsa))]
     return alsa::AlsaDriver;
     #[cfg(os_coreaudio)]
     return coreaudio::CoreAudioDriver;
@@ -71,9 +71,9 @@ where
 #[cfg(any(feature = "pipewire", os_alsa, os_coreaudio, os_wasapi))]
 #[allow(clippy::needless_return)]
 pub fn default_input_device() -> impl AudioInputDevice {
-    #[cfg(feature = "pipewire")]
+    #[cfg(all(os_pipewire, feature = "pipewire"))]
     return default_input_device_from(&pipewire::driver::PipewireDriver::new().unwrap());
-    #[cfg(all(not(feature = "pipewire"), os_alsa))]
+    #[cfg(all(not(all(os_pipewire, feature = "pipewire")), os_alsa))]
     return default_input_device_from(&alsa::AlsaDriver);
     #[cfg(os_coreaudio)]
     return default_input_device_from(&coreaudio::CoreAudioDriver);
@@ -102,9 +102,9 @@ where
 #[cfg(any(os_alsa, os_coreaudio, os_wasapi, feature = "pipewire"))]
 #[allow(clippy::needless_return)]
 pub fn default_output_device() -> impl AudioOutputDevice {
-    #[cfg(feature = "pipewire")]
+    #[cfg(all(os_pipewire, feature = "pipewire"))]
     return default_output_device_from(&pipewire::driver::PipewireDriver::new().unwrap());
-    #[cfg(all(not(feature = "pipewire"), os_alsa))]
+    #[cfg(all(not(all(os_pipewire, feature = "pipewire")), os_alsa))]
     return default_output_device_from(&alsa::AlsaDriver);
     #[cfg(os_coreaudio)]
     return default_output_device_from(&coreaudio::CoreAudioDriver);
