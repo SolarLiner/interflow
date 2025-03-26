@@ -55,7 +55,9 @@ jobs:
         rust: [1.83, 1.84, 1.85]
         include:
           - os: ubuntu-latest
-            feature-pipewire: [false, true]
+            feature-pipewire: false
+          - os: ubuntu-latest
+            feature-pipewire: true
     runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v4
