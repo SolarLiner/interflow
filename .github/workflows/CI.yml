@@ -53,9 +53,11 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
         rust: [1.83, 1.84, 1.85]
-        feature-pipewire: [false]
-        include:
-          - os: ubuntu-latest
+        feature-pipewire: [false, true]
+        exclude:
+          - os: windows-latest
+            feature-pipewire: true
+          - os: macos-latest
             feature-pipewire: true
     runs-on: ${{ matrix.os }}
     steps:
