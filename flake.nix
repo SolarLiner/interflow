@@ -15,11 +15,14 @@
         LIBCLANG_PATH = with pkgs; "${llvmPackages.libclang.lib}/lib";
       in
       {
-        defaultPackage = naersk-lib.buildPackage {
-          pname = "interflow";
-          version = "0.1.0";
-          src = ./.;
-          inherit nativeBuildInputs buildInputs LIBCLANG_PATH;
+        packages = rec {
+		  interflow = naersk-lib.buildPackage {
+		    pname = "interflow";
+		    version = "0.1.0";
+		    src = ./.;
+		    inherit nativeBuildInputs buildInputs LIBCLANG_PATH;
+		  };
+		  default = interflow;
         };
         devShells.default = pkgs.clangStdenv.mkDerivation {
           name = "interflow-devshell";
