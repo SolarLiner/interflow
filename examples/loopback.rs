@@ -1,7 +1,7 @@
 use crate::util::meter::PeakMeter;
 use crate::util::AtomicF32;
 use anyhow::Result;
-use interflow::prelude::*;
+use interflow::{duplex::DuplexStreamConfig, prelude::*};
 use std::sync::Arc;
 
 mod util;

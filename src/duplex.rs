@@ -2,15 +2,15 @@
 //!
 //! This module includes a proxy for gathering an input audio stream, and optionally process it to resample it to the
 //! output sample rate.
-use crate::audio_buffer::AudioRef;
 use crate::channel_map::Bitset;
-use crate::device::{AudioDevice, AudioInputDevice, AudioOutputDevice};
+use crate::device::{AudioInputDevice, AudioOutputDevice};
 use crate::stream::{
     AudioCallbackContext, AudioInputCallback, AudioOutputCallback, AudioStreamHandle, StreamConfig,
 };
 use crate::stream::{AudioInput, AudioOutput};
 use crate::SendEverywhereButOnWeb;
-use ndarray::{ArrayView1, ArrayViewMut1};
+use crate::{audio_buffer::AudioRef, device::AudioDevice};
+use fixed_resample::{PushStatus, ReadStatus, ResamplingChannelConfig};
 use std::error::Error;
 use std::num::NonZeroUsize;
 use thiserror::Error;
@@ -34,12 +34,19 @@ pub trait AudioDuplexCallback: 'static + SendEverywhereButOnWeb {
 }
 
 /// Type which handles both a duplex stream handle.
+///
+/// # Type Parameters
+///
+/// * `Callback` - The type of the callback implementation
+/// * `Error` - The type of error that can occur
 pub struct DuplexStream<Callback, Error> {
     _input_stream: Box<dyn AudioStreamHandle<InputProxy, Error = Error>>,
     _output_stream: Box<dyn AudioStreamHandle<DuplexCallback<Callback>, Error = Error>>,
 }
 
 /// Input proxy for transferring an input signal to a separate output callback to be processed as a duplex stream.
+///
+/// This struct handles the resampling of input audio data to match the output sample rate.
 pub struct InputProxy {
     producer: Option<fixed_resample::ResamplingProd<f32, MAX_CHANNELS>>,
     receive_output_samplerate: rtrb::Consumer<u32>,
@@ -70,6 +77,8 @@ impl InputProxy {
 
 impl AudioInputCallback for InputProxy {
     /// Processes incoming audio data and stores it in the internal buffer.
+    ///
+    /// This method handles sample rate conversion between input and output streams.
     ///
     /// Handles sample rate conversion between input and output streams.
     ///
@@ -143,6 +152,11 @@ impl AudioInputCallback for InputProxy {
 #[derive(Debug, Error)]
 #[error(transparent)]
 /// Represents errors that can occur during duplex stream operations.
+///
+/// # Type Parameters
+///
+/// * `InputError` - The type of error that can occur in the input stream
+/// * `OutputError` - The type of error that can occur in the output stream
 pub enum DuplexCallbackError<InputError, OutputError> {
     /// No input channels given
     #[error("No input channels given")]
@@ -156,6 +170,8 @@ pub enum DuplexCallbackError<InputError, OutputError> {
 }
 
 /// [`AudioOutputCallback`] implementation for which runs the provided [`AudioDuplexCallback`].
+///
+/// This struct handles the processing of audio data in a duplex stream.
 pub struct DuplexCallback<Callback> {
     input: Option<fixed_resample::ResamplingCons<f32>>,
     receive_consumer: rtrb::Consumer<fixed_resample::ResamplingCons<f32>>,
@@ -231,6 +247,10 @@ impl<Callback: AudioDuplexCallback> AudioOutputCallback for DuplexCallback<Callb
 /// input and output audio data simultaneously. It wraps the individual input and output stream
 /// handles and provides unified control over the duplex operation.
 ///
+/// This struct provides a way to control and manage a duplex audio stream that processes both
+/// input and output audio data simultaneously. It wraps the individual input and output stream
+/// handles and provides unified control over the duplex operation.
+///
 /// # Type Parameters
 ///
 /// * `InputHandle` - The type of the input stream handle, must implement `AudioStreamHandle<InputProxy>`
@@ -239,7 +259,7 @@ impl<Callback: AudioDuplexCallback> AudioOutputCallback for DuplexCallback<Callb
 /// # Example
 ///
 /// ```no_run
-/// use interflow::duplex::AudioDuplexCallback;
+/// use interflow::duplex::{AudioDuplexCallback, DuplexStreamConfig};
 /// use interflow::prelude::*;
 ///
 /// let input_device = default_input_device();
@@ -361,7 +381,7 @@ pub type DuplexStreamResult<In, Out, Callback> = Result<
 /// # Example
 ///
 /// ```no_run
-/// use interflow::duplex::AudioDuplexCallback;
+/// use interflow::duplex::{AudioDuplexCallback, DuplexStreamConfig};
 /// use interflow::prelude::*;
 ///
 /// struct MyCallback;
