@@ -17,7 +17,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev
+          sudo apt-get install -y libasound2-dev libspa-0.2-dev libpipewire-0.3-dev
       - uses: actions/cache@v4
         with:
           path: |
