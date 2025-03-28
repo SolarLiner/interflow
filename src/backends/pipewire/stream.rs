@@ -1,10 +1,12 @@
-use crate::audio_buffer::{AudioMut, AudioRef};
 use crate::backends::pipewire::error::PipewireError;
 use crate::channel_map::Bitset;
 use crate::timestamp::Timestamp;
 use crate::{
-    AudioCallbackContext, AudioInput, AudioInputCallback, AudioOutput, AudioOutputCallback,
-    AudioStreamHandle, StreamConfig,
+    audio_buffer::{AudioMut, AudioRef},
+    stream::{
+        AudioCallbackContext, AudioInput, AudioInputCallback, AudioOutput, AudioOutputCallback,
+        AudioStreamHandle, StreamConfig,
+    },
 };
 use libspa::buffer::Data;
 use libspa::param::audio::{AudioFormat, AudioInfoRaw};
