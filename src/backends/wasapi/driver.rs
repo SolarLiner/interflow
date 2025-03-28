@@ -6,7 +6,8 @@ use windows::Win32::System::Com;
 
 use super::{error, util};
 
-use crate::{AudioDriver, DeviceType};
+use crate::device::DeviceType;
+use crate::driver::AudioDriver;
 
 /// The WASAPI driver.
 #[derive(Debug, Clone, Default)]
