@@ -1,6 +1,6 @@
 use crate::util::sine::SineWave;
 use anyhow::Result;
-use interflow::prelude::*;
+use interflow::{duplex::DuplexStreamConfig, prelude::*};
 
 mod util;
 
