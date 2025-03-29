@@ -132,15 +132,14 @@ pub trait AudioDuplexDevice: AudioDevice {
     }
 }
 
-/// Devices are either inputs, outputs, or provide both at the same time.
+/// Devices are either inputs or outputs. Duplex devices are not covered by this type,
+/// as they are covered by an entirely different trait: [`AudioDuplexDevice`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DeviceType {
     /// Device only supports inputs.
     Input,
     /// Device only supports outputs.
     Output,
-    /// Device supports simultaneous inputs and outputs.
-    Duplex,
 }
 
 /// Audio channel description.

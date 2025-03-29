@@ -64,7 +64,6 @@ impl AudioDeviceEnumerator {
         let data_flow = match device_type {
             DeviceType::Input => Audio::eCapture,
             DeviceType::Output => Audio::eRender,
-            _ => return Ok(None),
         };
 
         unsafe {
