@@ -80,7 +80,7 @@ impl AsioDevice {
                         *streams = new_streams;
                         bs
                     })
-                    .map_err(|e| AsioError::BackendError(e))
+                    .map_err(AsioError::BackendError)
             }
         }
     }
@@ -111,7 +111,7 @@ impl AsioDevice {
                         *streams = new_streams;
                         bs
                     })
-                    .map_err(|e| AsioError::BackendError(e))
+                    .map_err(AsioError::BackendError)
             }
         }
     }
@@ -131,7 +131,7 @@ impl AudioDevice for AsioDevice {
     fn is_config_supported(&self, config: &StreamConfig) -> bool {
         let sample_rate = config.samplerate;
         self.driver.can_sample_rate(sample_rate).unwrap_or(false)
-            && self.driver.channels().map_or(false, |channels| {
+            && self.driver.channels().is_ok_and(|channels| {
                 let num_channels = config.channels as i32;
                 match self.device_type {
                     DeviceType::Input => channels.ins >= num_channels,
@@ -141,7 +141,7 @@ impl AudioDevice for AsioDevice {
                     }
                 }
             })
-            && self.driver.buffersize_range().map_or(false, |(min, max)| {
+            && self.driver.buffersize_range().is_ok_and(|(min, max)| {
                 match config.buffer_size_range {
                     (Some(min_config), Some(max_config)) => {
                         min_config >= min as usize && max_config <= max as usize
@@ -152,7 +152,31 @@ impl AudioDevice for AsioDevice {
     }
 
     fn enumerate_configurations(&self) -> Option<impl IntoIterator<Item = StreamConfig>> {
-        None::<[StreamConfig; 0]>
+        let sample_rates = [
+            44100.0, 48000.0, 96000.0, 192000.0, 384000.0, 768000.0,
+        ];
+
+        let buffer_size_range = self.driver.buffersize_range().ok().map(|(min, max)| {
+            (Some(min as usize), Some(max as usize))
+        })?;
+
+        let channels = self.driver.channels().ok().map(|channels| {
+            match self.device_type {
+                DeviceType::Input => channels.ins as u32,
+                DeviceType::Output => channels.outs as u32,
+                DeviceType::Duplex => channels.ins.max(channels.outs) as u32,
+                
+            }
+        })?;
+        
+        Some(sample_rates.into_iter().filter_map(move |samplerate| {
+            self.driver.can_sample_rate(samplerate).ok().filter(|&can| can).map(|_| StreamConfig {
+                channels,
+                samplerate,
+                buffer_size_range,
+                exclusive: false,
+            })
+        }))
     }
 }
 
@@ -279,7 +303,7 @@ impl AudioOutputDevice for AsioDevice {
         let mut buffer = vec![0.0f32; num_samples];
 
         let mut streams = self.asio_streams.lock().unwrap();
-        let output_stream = streams.output.take().ok_or(AsioError::MultipleStreams)?;
+        let mut output_stream = streams.output.take().ok_or(AsioError::MultipleStreams)?;
 
         let (tx, rx) = oneshot::channel::<oneshot::Sender<Callback>>();
         let mut callback = Some(callback);
@@ -306,7 +330,7 @@ impl AudioOutputDevice for AsioDevice {
 
             let output = create_output(
                 &output_data_type,
-                &output_stream,
+                &mut output_stream,
                 &mut buffer,
                 buffer_index,
                 num_channels,
@@ -364,7 +388,7 @@ impl AudioDuplexDevice for AsioDevice {
         let mut output_buffer = vec![0.0f32; num_samples];
 
         let mut streams = self.asio_streams.lock().unwrap();
-        let output_stream = streams.output.take().ok_or(AsioError::MultipleStreams)?;
+        let mut output_stream = streams.output.take().ok_or(AsioError::MultipleStreams)?;
         let input_stream = streams.input.take().ok_or(AsioError::MultipleStreams)?;
 
         let (tx, rx) = oneshot::channel::<oneshot::Sender<Callback>>();
@@ -396,7 +420,7 @@ impl AudioDuplexDevice for AsioDevice {
 
             let output = create_output(
                 &output_data_type,
-                &output_stream,
+                &mut output_stream,
                 &mut output_buffer,
                 buffer_index,
                 num_channels,
@@ -428,7 +452,7 @@ impl AudioDuplexDevice for AsioDevice {
 /// Create an `AudioOutput` from the ASIO stream and the buffer.
 unsafe fn create_output<'a>(
     output_data_type: &asio::AsioSampleType,
-    asio_stream: &asio::AsioStream,
+    asio_stream: &mut asio::AsioStream,
     buffer: &'a mut [f32],
     buffer_index: usize,
     num_channels: usize,
@@ -436,7 +460,7 @@ unsafe fn create_output<'a>(
 ) -> AudioOutput<'a, f32> {
     let audio_output_buffer = match output_data_type {
         asio::AsioSampleType::ASIOSTInt16MSB => create_output_buffer(
-            &asio_stream,
+            asio_stream,
             buffer,
             buffer_index,
             num_channels,
@@ -444,7 +468,7 @@ unsafe fn create_output<'a>(
             f32_to_i16,
         ),
         asio::AsioSampleType::ASIOSTInt16LSB => create_output_buffer(
-            &asio_stream,
+            asio_stream,
             buffer,
             buffer_index,
             num_channels,
@@ -452,7 +476,7 @@ unsafe fn create_output<'a>(
             f32_to_i16,
         ),
         asio::AsioSampleType::ASIOSTInt24MSB => create_output_buffer(
-            &asio_stream,
+            asio_stream,
             buffer,
             buffer_index,
             num_channels,
@@ -460,7 +484,7 @@ unsafe fn create_output<'a>(
             f32_to_i24,
         ),
         asio::AsioSampleType::ASIOSTInt24LSB => create_output_buffer(
-            &asio_stream,
+            asio_stream,
             buffer,
             buffer_index,
             num_channels,
@@ -468,7 +492,7 @@ unsafe fn create_output<'a>(
             f32_to_i24,
         ),
         asio::AsioSampleType::ASIOSTInt32MSB => create_output_buffer(
-            &asio_stream,
+            asio_stream,
             buffer,
             buffer_index,
             num_channels,
@@ -476,7 +500,7 @@ unsafe fn create_output<'a>(
             f32_to_i32,
         ),
         asio::AsioSampleType::ASIOSTInt32LSB => create_output_buffer(
-            &asio_stream,
+            asio_stream,
             buffer,
             buffer_index,
             num_channels,
@@ -484,7 +508,7 @@ unsafe fn create_output<'a>(
             f32_to_i32,
         ),
         asio::AsioSampleType::ASIOSTFloat32MSB => create_output_buffer::<u32>(
-            &asio_stream,
+            asio_stream,
             buffer,
             buffer_index,
             num_channels,
@@ -492,7 +516,7 @@ unsafe fn create_output<'a>(
             f32::to_bits,
         ),
         asio::AsioSampleType::ASIOSTFloat32LSB => create_output_buffer::<u32>(
-            &asio_stream,
+            asio_stream,
             buffer,
             buffer_index,
             num_channels,
@@ -521,7 +545,7 @@ unsafe fn create_input<'a>(
 ) -> AudioInput<'a, f32> {
     let audio_input_buffer = match input_data_type {
         asio::AsioSampleType::ASIOSTInt16MSB => create_input_buffer(
-            &asio_stream,
+            asio_stream,
             buffer,
             buffer_index,
             num_channels,
@@ -529,7 +553,7 @@ unsafe fn create_input<'a>(
             i16_to_f32,
         ),
         asio::AsioSampleType::ASIOSTInt16LSB => create_input_buffer(
-            &asio_stream,
+            asio_stream,
             buffer,
             buffer_index,
             num_channels,
@@ -537,7 +561,7 @@ unsafe fn create_input<'a>(
             i16_to_f32,
         ),
         asio::AsioSampleType::ASIOSTInt24MSB => create_input_buffer(
-            &asio_stream,
+            asio_stream,
             buffer,
             buffer_index,
             num_channels,
@@ -545,7 +569,7 @@ unsafe fn create_input<'a>(
             i24_to_f32,
         ),
         asio::AsioSampleType::ASIOSTInt24LSB => create_input_buffer(
-            &asio_stream,
+            asio_stream,
             buffer,
             buffer_index,
             num_channels,
@@ -553,7 +577,7 @@ unsafe fn create_input<'a>(
             i24_to_f32,
         ),
         asio::AsioSampleType::ASIOSTInt32MSB => create_input_buffer(
-            &asio_stream,
+            asio_stream,
             buffer,
             buffer_index,
             num_channels,
@@ -561,7 +585,7 @@ unsafe fn create_input<'a>(
             i32_to_f32,
         ),
         asio::AsioSampleType::ASIOSTInt32LSB => create_input_buffer(
-            &asio_stream,
+            asio_stream,
             buffer,
             buffer_index,
             num_channels,
@@ -569,7 +593,7 @@ unsafe fn create_input<'a>(
             i32_to_f32,
         ),
         asio::AsioSampleType::ASIOSTFloat32MSB => create_input_buffer::<u32>(
-            &asio_stream,
+            asio_stream,
             buffer,
             buffer_index,
             num_channels,
@@ -577,7 +601,7 @@ unsafe fn create_input<'a>(
             f32::from_bits,
         ),
         asio::AsioSampleType::ASIOSTFloat32LSB => create_input_buffer::<u32>(
-            &asio_stream,
+            asio_stream,
             buffer,
             buffer_index,
             num_channels,
@@ -614,7 +638,7 @@ unsafe fn create_input_buffer<'a, SampleType: Copy>(
 }
 
 unsafe fn create_output_buffer<'a, SampleType: Copy>(
-    asio_stream: &asio::AsioStream,
+    asio_stream: &mut asio::AsioStream,
     buffer: &'a mut [f32],
     buffer_index: usize,
     num_channels: usize,
@@ -638,18 +662,18 @@ unsafe fn asio_channel_slice<T>(
 ) -> &[T] {
     let buffer_size = asio_stream.buffer_size as usize;
     let buff_ptr: *const T =
-        asio_stream.buffer_infos[channel_index].buffers[buffer_index as usize] as *const _;
+        asio_stream.buffer_infos[channel_index].buffers[buffer_index] as *const _;
     std::slice::from_raw_parts(buff_ptr, buffer_size)
 }
 
 unsafe fn asio_channel_slice_mut<T>(
-    asio_stream: &asio::AsioStream,
+    asio_stream: &mut asio::AsioStream,
     buffer_index: usize,
     channel_index: usize,
 ) -> &mut [T] {
     let buffer_size = asio_stream.buffer_size as usize;
     let buff_ptr: *mut T =
-        asio_stream.buffer_infos[channel_index].buffers[buffer_index as usize] as *mut _;
+        asio_stream.buffer_infos[channel_index].buffers[buffer_index] as *mut _;
     std::slice::from_raw_parts_mut(buff_ptr, buffer_size)
 }
 
