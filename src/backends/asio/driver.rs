@@ -34,15 +34,14 @@ impl AudioDriver for AsioDriver {
     }
 
     fn default_device(&self, device_type: DeviceType) -> Result<Option<Self::Device>, Self::Error> {
-        let iter = AsioDeviceList::new(self.asio.clone())?;
+        let mut iter = AsioDeviceList::new(self.asio.clone())?;
 
         let dd = iter
-            .filter(|device| match (device.device_type(), device_type) {
-                (DeviceType::Input | DeviceType::Duplex, DeviceType::Input) => true,
-                (DeviceType::Output | DeviceType::Duplex, DeviceType::Output) => true,
-                (a, b) => a == b,
-            })
-            .next();
+        .find(|device| match (device.device_type(), device_type) {
+            (DeviceType::Input | DeviceType::Duplex, DeviceType::Input) => true,
+            (DeviceType::Output | DeviceType::Duplex, DeviceType::Output) => true,
+            (a, b) => a == b,
+        });
         Ok(dd)
     }
 
