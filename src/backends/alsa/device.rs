@@ -100,7 +100,6 @@ impl AlsaDevice {
         let direction = match device_type {
             DeviceType::Input => alsa::Direction::Capture,
             DeviceType::Output => alsa::Direction::Playback,
-            _ => return Ok(None),
         };
         let pcm = Rc::new(PCM::new("default", direction, true)?);
         Ok(Some(Self {
