@@ -19,7 +19,7 @@ zerocopy = { version = "0.8.24", optional = true }
 
 [dev-dependencies]
 anyhow = "1.0.97"
-env_logger = "0.11.7"
+env_logger = "0.11.8"
 indicatif = "0.17.11"
 
 [build-dependencies]
