@@ -13,9 +13,6 @@ pub trait AudioDevice {
     /// Device display name
     fn name(&self) -> Cow<str>;
 
-    /// Device type. Either input, output, or duplex.
-    fn device_type(&self) -> DeviceType;
-
     /// Not all configuration values make sense for a particular device, and this method tests a
     /// configuration to see if it can be used in an audio stream.
     fn is_config_supported(&self, config: &StreamConfig) -> bool;

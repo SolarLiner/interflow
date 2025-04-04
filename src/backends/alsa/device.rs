@@ -1,8 +1,11 @@
-use crate::{backends::alsa::stream::AlsaStream, device::AudioDuplexDevice, duplex::AudioDuplexCallback, SendEverywhereButOnWeb};
 use crate::backends::alsa::AlsaError;
 use crate::device::Channel;
 use crate::device::{AudioDevice, AudioInputDevice, AudioOutputDevice, DeviceType};
 use crate::stream::{AudioInputCallback, AudioOutputCallback, StreamConfig};
+use crate::{
+    backends::alsa::stream::AlsaStream, device::AudioDuplexDevice, duplex::AudioDuplexCallback,
+    SendEverywhereButOnWeb,
+};
 use alsa::{pcm, PCM};
 use std::borrow::Cow;
 use std::fmt;
@@ -47,13 +50,6 @@ impl AudioDevice for AlsaDevice {
 
     fn name(&self) -> Cow<str> {
         Cow::Borrowed(self.name.as_str())
-    }
-
-    fn device_type(&self) -> DeviceType {
-        match self.direction {
-            alsa::Direction::Playback => DeviceType::Output,
-            alsa::Direction::Capture => DeviceType::Input,
-        }
     }
 
     fn is_config_supported(&self, config: &StreamConfig) -> bool {
@@ -205,10 +201,6 @@ impl AudioDevice for AlsaDuplexDevice {
 
     fn name(&self) -> Cow<str> {
         Cow::Owned(format!("{} / {}", self.input.name(), self.output.name()))
-    }
-
-    fn device_type(&self) -> DeviceType {
-        DeviceType::Duplex
     }
 
     fn is_config_supported(&self, config: &StreamConfig) -> bool {

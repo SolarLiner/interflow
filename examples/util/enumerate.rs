@@ -19,7 +19,7 @@ where
 
     eprintln!("All devices");
     for device in driver.list_devices()? {
-        eprintln!("\t{} ({:?})", device.name(), device.device_type());
+        eprintln!("\t{}", device.name());
     }
     Ok(())
 }

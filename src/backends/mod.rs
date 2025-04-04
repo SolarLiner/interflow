@@ -130,7 +130,9 @@ pub fn default_duplex_device() -> impl crate::device::AudioDuplexDevice {
 /// Returns the default duplex device for the given audio driver.
 ///
 /// The default device is usually the one the user has selected in its system settings.
-pub fn default_duplex_device_from<D: crate::driver::AudioDuplexDriver>(driver: &D) -> D::DuplexDevice
+pub fn default_duplex_device_from<D: crate::driver::AudioDuplexDriver>(
+    driver: &D,
+) -> D::DuplexDevice
 where
     D::Device: AudioInputDevice + AudioOutputDevice,
 {

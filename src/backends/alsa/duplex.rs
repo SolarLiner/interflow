@@ -1,9 +1,13 @@
-use crate::{audio_buffer::{AudioMut, AudioRef}, backends::alsa::AlsaError, stream::{AudioCallbackContext, AudioInput, AudioOutput, StreamConfig}};
 use crate::channel_map::{Bitset, ChannelMap32};
 use crate::duplex::AudioDuplexCallback;
 use crate::prelude::alsa::device::AlsaDevice;
 use crate::prelude::alsa::stream::AlsaStream;
 use crate::timestamp::Timestamp;
+use crate::{
+    audio_buffer::{AudioMut, AudioRef},
+    backends::alsa::AlsaError,
+    stream::{AudioCallbackContext, AudioInput, AudioOutput, StreamConfig},
+};
 use alsa::{pcm, PollDescriptors};
 use std::sync::Arc;
 use std::time::Duration;
