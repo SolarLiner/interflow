@@ -1,5 +1,4 @@
-use crate::backends::pipewire::error::PipewireError;
-use crate::DeviceType;
+use crate::{backends::pipewire::error::PipewireError, device::DeviceType};
 use libspa::utils::dict::DictRef;
 use pipewire::context::Context;
 use pipewire::main_loop::MainLoop;
@@ -20,7 +19,7 @@ fn get_device_type(object: &GlobalObject<&DictRef>) -> Option<DeviceType> {
 
     let media_class = object.props?.get("media.class")?;
     Some(match (is_input(media_class), is_output(media_class)) {
-        (true, true) => DeviceType::Duplex,
+        (true, true) => DeviceType::Output,
         (true, _) => DeviceType::Input,
         (_, true) => DeviceType::Output,
         _ => return None,
@@ -86,6 +85,5 @@ pub fn get_default_node_for(device_type: DeviceType) -> u32 {
     match device_type {
         DeviceType::Input => 0,
         DeviceType::Output => 1,
-        DeviceType::Duplex => 2,
     }
 }
