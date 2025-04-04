@@ -34,10 +34,6 @@ impl AudioDevice for PipewireDevice {
         }
     }
 
-    fn device_type(&self) -> DeviceType {
-        self.device_type
-    }
-
     fn is_config_supported(&self, _config: &StreamConfig) -> bool {
         true
     }

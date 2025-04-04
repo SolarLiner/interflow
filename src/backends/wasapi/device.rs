@@ -37,10 +37,6 @@ impl AudioDevice for WasapiDevice {
         }
     }
 
-    fn device_type(&self) -> DeviceType {
-        self.device_type
-    }
-
     fn is_config_supported(&self, config: &StreamConfig) -> bool {
         match self.device_type {
             DeviceType::Output => stream::is_output_config_supported(self.device.clone(), config),
