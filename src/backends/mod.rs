@@ -58,7 +58,7 @@ where
     Driver::Device: AudioInputDevice,
 {
     driver
-        .default_device(DeviceType::Input)
+        .default_device(DeviceType::PHYSICAL | DeviceType::INPUT)
         .expect("Audio driver error")
         .expect("No default device found")
 }
@@ -89,7 +89,7 @@ where
     Driver::Device: AudioOutputDevice,
 {
     driver
-        .default_device(DeviceType::Output)
+        .default_device(DeviceType::PHYSICAL | DeviceType::OUTPUT)
         .expect("Audio driver error")
         .expect("No default device found")
 }

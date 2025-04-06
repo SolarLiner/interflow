@@ -6,6 +6,7 @@ rust-version = "1.80"
 license = "MIT"
 
 [dependencies]
+bitflags = "2.9.0"
 duplicate = "2.0.0"
 fixed-resample = "0.8.0"
 libspa = { version = "0.8.0", optional = true }

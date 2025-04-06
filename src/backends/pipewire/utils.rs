@@ -19,12 +19,10 @@ fn get_device_type(object: &GlobalObject<&DictRef>) -> Option<DeviceType> {
     }
 
     let media_class = object.props?.get("media.class")?;
-    Some(match (is_input(media_class), is_output(media_class)) {
-        (true, true) => DeviceType::Duplex,
-        (true, _) => DeviceType::Input,
-        (_, true) => DeviceType::Output,
-        _ => return None,
-    })
+    let mut device_type = DeviceType::empty();
+    device_type.set(DeviceType::INPUT, is_input(media_class));
+    device_type.set(DeviceType::OUTPUT, is_output(media_class));
+    Some(device_type)
 }
 
 pub fn get_devices() -> Result<Vec<(u32, DeviceType)>, PipewireError> {
@@ -80,12 +78,4 @@ pub fn get_devices() -> Result<Vec<(u32, DeviceType)>, PipewireError> {
     drop(_listener_core);
     drop(_listener_reg);
     Ok(Rc::into_inner(data).unwrap().into_inner())
-}
-
-pub fn get_default_node_for(device_type: DeviceType) -> u32 {
-    match device_type {
-        DeviceType::Input => 0,
-        DeviceType::Output => 1,
-        DeviceType::Duplex => 2,
-    }
 }
