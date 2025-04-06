@@ -12,9 +12,7 @@ use coreaudio::audio_unit::macos_helpers::{
 };
 use coreaudio::audio_unit::render_callback::{data, Args};
 use coreaudio::audio_unit::{AudioUnit, Element, SampleFormat, Scope, StreamFormat};
-use coreaudio::sys::{
-    kAudioUnitProperty_SampleRate, kAudioUnitProperty_StreamFormat, AudioDeviceID,
-};
+use coreaudio::sys::{kAudioUnitProperty_SampleRate, kAudioUnitProperty_StreamFormat, AudioDeviceID};
 use thiserror::Error;
 
 use crate::audio_buffer::{AudioBuffer, Sample};
@@ -49,18 +47,14 @@ impl AudioDriver for CoreAudioDriver {
     const DISPLAY_NAME: &'static str = "CoreAudio";
 
     fn version(&self) -> Result<Cow<str>, Self::Error> {
-        Ok(Cow::Borrowed("CoreAudio (version unknown)"))
+        Ok(Cow::Borrowed("unknown"))
     }
 
     fn default_device(&self, device_type: DeviceType) -> Result<Option<Self::Device>, Self::Error> {
-        let is_input = matches!(device_type, DeviceType::Input);
-        let Some(device_id) = get_default_device_id(is_input) else {
+        let Some(device_id) = get_default_device_id(device_type.is_input()) else {
             return Ok(None);
         };
-        Ok(Some(CoreAudioDevice {
-            device_id,
-            device_type,
-        }))
+        Ok(Some(CoreAudioDevice::from_id(device_id, device_type.is_input())?))
     }
 
     fn list_devices(&self) -> Result<impl IntoIterator<Item = Self::Device>, Self::Error> {
@@ -70,7 +64,7 @@ impl AudioDriver for CoreAudioDriver {
                 let audio_ids = get_audio_device_ids_for_scope(scope)?;
                 audio_ids
                     .into_iter()
-                    .map(|id| CoreAudioDevice::from_id(scope, id))
+                    .map(|id| CoreAudioDevice::from_id(id, matches!(scope, Scope::Input)))
                     .collect::<Result<Vec<_>, _>>()
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -86,21 +80,18 @@ pub struct CoreAudioDevice {
 }
 
 impl CoreAudioDevice {
-    fn from_id(scope: Scope, device_id: AudioDeviceID) -> Result<Self, CoreAudioError> {
-        let device_type =
-            Self::scope_to_valid_device_type(scope).ok_or(CoreAudioError::InvalidScope(scope))?;
+    fn from_id(device_id: AudioDeviceID, is_input: bool) -> Result<Self, CoreAudioError> {
+        let is_output = !is_input; // TODO: Interact with CoreAudio directly to be able to work with duplex devices
+        let is_default = get_default_device_id(true) == Some(device_id)
+            || get_default_device_id(false) == Some(device_id);
+        let mut device_type = DeviceType::empty();
+        device_type.set(DeviceType::INPUT, is_input);
+        device_type.set(DeviceType::OUTPUT, is_output);
+        device_type.set(DeviceType::DEFAULT, is_default);
         Ok(Self {
             device_id,
             device_type,
         })
-    }
-
-    fn scope_to_valid_device_type(scope: Scope) -> Option<DeviceType> {
-        match scope {
-            Scope::Input => Some(DeviceType::Input),
-            Scope::Output => Some(DeviceType::Output),
-            _ => None,
-        }
     }
 }
 
@@ -122,7 +113,7 @@ impl AudioDevice for CoreAudioDevice {
     }
 
     fn channel_map(&self) -> impl IntoIterator<Item = Channel> {
-        let is_input = matches!(self.device_type, DeviceType::Input);
+        let is_input = matches!(self.device_type, DeviceType::INPUT);
         let channels = match audio_unit_from_device_id(self.device_id, is_input) {
             Err(err) => {
                 eprintln!("CoreAudio error getting audio unit: {err}");
@@ -244,6 +235,7 @@ impl AudioOutputDevice for CoreAudioDevice {
     }
 }
 
+/// Stream type created by opening up a stream on a [`CoreAudioDevice`].
 pub struct CoreAudioStream<Callback> {
     audio_unit: AudioUnit,
     callback_retrieve: oneshot::Sender<oneshot::Sender<Callback>>,
