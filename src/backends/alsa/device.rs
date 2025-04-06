@@ -35,8 +35,8 @@ impl AudioDevice for AlsaDevice {
 
     fn device_type(&self) -> DeviceType {
         match self.direction {
-            alsa::Direction::Playback => DeviceType::Output,
-            alsa::Direction::Capture => DeviceType::Input,
+            alsa::Direction::Capture => DeviceType::PHYSICAL | DeviceType::INPUT,
+            alsa::Direction::Playback => DeviceType::PHYSICAL | DeviceType::OUTPUT,
         }
     }
 
@@ -93,12 +93,7 @@ impl AudioOutputDevice for AlsaDevice {
 
 impl AlsaDevice {
     /// Shortcut constructor for getting ALSA devices directly.
-    pub fn default_device(device_type: DeviceType) -> Result<Option<Self>, alsa::Error> {
-        let direction = match device_type {
-            DeviceType::Input => alsa::Direction::Capture,
-            DeviceType::Output => alsa::Direction::Playback,
-            _ => return Ok(None),
-        };
+    pub fn default_device(direction: alsa::Direction) -> Result<Option<Self>, alsa::Error> {
         let pcm = Rc::new(PCM::new("default", direction, true)?);
         Ok(Some(Self {
             pcm,
