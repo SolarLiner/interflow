@@ -12,7 +12,9 @@ use coreaudio::audio_unit::macos_helpers::{
 };
 use coreaudio::audio_unit::render_callback::{data, Args};
 use coreaudio::audio_unit::{AudioUnit, Element, SampleFormat, Scope, StreamFormat};
-use coreaudio::sys::{kAudioUnitProperty_SampleRate, kAudioUnitProperty_StreamFormat, AudioDeviceID};
+use coreaudio::sys::{
+    kAudioUnitProperty_SampleRate, kAudioUnitProperty_StreamFormat, AudioDeviceID,
+};
 use thiserror::Error;
 
 use crate::audio_buffer::{AudioBuffer, Sample};
@@ -54,7 +56,10 @@ impl AudioDriver for CoreAudioDriver {
         let Some(device_id) = get_default_device_id(device_type.is_input()) else {
             return Ok(None);
         };
-        Ok(Some(CoreAudioDevice::from_id(device_id, device_type.is_input())?))
+        Ok(Some(CoreAudioDevice::from_id(
+            device_id,
+            device_type.is_input(),
+        )?))
     }
 
     fn list_devices(&self) -> Result<impl IntoIterator<Item = Self::Device>, Self::Error> {
