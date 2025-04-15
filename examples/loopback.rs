@@ -6,6 +6,23 @@ use std::sync::Arc;
 
 mod util;
 
+#[cfg(os_alsa)]
+fn main() -> Result<()> {
+    env_logger::init();
+
+    let device = default_duplex_device();
+    let mut config = device.default_duplex_config().unwrap();
+    config.buffer_size_range = (Some(128), Some(512));
+    let value = Arc::new(AtomicF32::new(0.0));
+    let stream = device
+        .create_duplex_stream(config, Loopback::new(44100., value.clone()))
+        .unwrap();
+    util::display_peakmeter(value)?;
+    stream.eject().unwrap();
+    Ok(())
+}
+
+#[cfg(not(os_alsa))]
 fn main() -> Result<()> {
     env_logger::init();
 

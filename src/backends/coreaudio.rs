@@ -18,7 +18,8 @@ use coreaudio::sys::{
 use thiserror::Error;
 
 use crate::audio_buffer::{AudioBuffer, Sample};
-use crate::channel_map::{Bitset, ChannelMap32};
+use crate::channel_map::Bitset;
+use crate::channel_map::ChannelMap32;
 use crate::device::{AudioDevice, AudioInputDevice, AudioOutputDevice, Channel, DeviceType};
 use crate::driver::AudioDriver;
 use crate::stream::{
@@ -116,10 +117,6 @@ impl AudioDevice for CoreAudioDevice {
                 Cow::Borrowed("<unknown>")
             }
         }
-    }
-
-    fn device_type(&self) -> DeviceType {
-        self.device_type
     }
 
     fn is_config_supported(&self, _config: &StreamConfig) -> bool {
