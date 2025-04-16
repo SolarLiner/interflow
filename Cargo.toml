@@ -64,8 +64,8 @@ path = "examples/enumerate_coreaudio.rs"
 [[example]]
 name = "enumerate_wasapi"
 path = "examples/enumerate_wasapi.rs"
-required-features = ["pipewire"]
 
 [[example]]
 name = "enumerate_pipewire"
 path = "examples/enumerate_pipewire.rs"
+required-features = ["pipewire"]
