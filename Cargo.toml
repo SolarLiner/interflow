@@ -6,6 +6,7 @@ rust-version = "1.80"
 license = "MIT"
 
 [dependencies]
+bitflags = "2.9.0"
 duplicate = "2.0.0"
 fixed-resample = "0.8.0"
 libspa = { version = "0.8.0", optional = true }
@@ -63,8 +64,8 @@ path = "examples/enumerate_coreaudio.rs"
 [[example]]
 name = "enumerate_wasapi"
 path = "examples/enumerate_wasapi.rs"
-required-features = ["pipewire"]
 
 [[example]]
 name = "enumerate_pipewire"
 path = "examples/enumerate_pipewire.rs"
+required-features = ["pipewire"]

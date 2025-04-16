@@ -1,4 +1,5 @@
 use crate::backends::wasapi::device::{WasapiDevice, WasapiDeviceList};
+use bitflags::bitflags_match;
 use std::borrow::Cow;
 use std::sync::OnceLock;
 use windows::Win32::Media::Audio;
@@ -60,17 +61,16 @@ impl AudioDeviceEnumerator {
         &self,
         device_type: DeviceType,
     ) -> Result<Option<WasapiDevice>, error::WasapiError> {
-        let data_flow = match device_type {
-            DeviceType::Input => Audio::eCapture,
-            DeviceType::Output => Audio::eRender,
-            _ => return Ok(None),
-        };
+        let data_flow = bitflags_match!(device_type, {
+            DeviceType::INPUT | DeviceType::PHYSICAL => Some(Audio::eCapture),
+            DeviceType::OUTPUT | DeviceType::PHYSICAL => Some(Audio::eRender),
+            _ => None,
+        });
 
-        unsafe {
-            let device = self.0.GetDefaultAudioEndpoint(data_flow, Audio::eConsole)?;
-
-            Ok(Some(WasapiDevice::new(device, DeviceType::Output)))
-        }
+        data_flow.map_or(Ok(None), |flow| unsafe {
+            let device = self.0.GetDefaultAudioEndpoint(flow, Audio::eConsole)?;
+            Ok(Some(WasapiDevice::new(device, device_type)))
+        })
     }
 
     // Returns a chained iterator of output and input devices.
@@ -89,7 +89,7 @@ impl AudioDeviceEnumerator {
                 collection: output_collection,
                 total_count: count,
                 next_item: 0,
-                device_type: DeviceType::Output,
+                device_type: DeviceType::OUTPUT,
             };
 
             let input_collection = self
@@ -102,7 +102,7 @@ impl AudioDeviceEnumerator {
                 collection: input_collection,
                 total_count: count,
                 next_item: 0,
-                device_type: DeviceType::Input,
+                device_type: DeviceType::INPUT,
             };
 
             Ok(output_device_list.chain(input_device_list))
