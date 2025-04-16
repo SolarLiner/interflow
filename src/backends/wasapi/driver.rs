@@ -1,7 +1,7 @@
 use crate::backends::wasapi::device::{WasapiDevice, WasapiDeviceList};
+use bitflags::bitflags_match;
 use std::borrow::Cow;
 use std::sync::OnceLock;
-use bitflags::bitflags_match;
 use windows::Win32::Media::Audio;
 use windows::Win32::System::Com;
 
@@ -66,7 +66,7 @@ impl AudioDeviceEnumerator {
             DeviceType::OUTPUT | DeviceType::PHYSICAL => Some(Audio::eRender),
             _ => None,
         });
-        
+
         data_flow.map_or(Ok(None), |flow| unsafe {
             let device = self.0.GetDefaultAudioEndpoint(flow, Audio::eConsole)?;
             Ok(Some(WasapiDevice::new(device, device_type)))
