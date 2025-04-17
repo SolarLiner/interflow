@@ -1,7 +1,6 @@
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
-use bitflags::bitflags;
 use std::borrow::Cow;
 use std::fmt;
 use std::fmt::Formatter;
@@ -9,6 +8,7 @@ use std::fmt::Formatter;
 use crate::audio_buffer::{AudioMut, AudioRef};
 use crate::channel_map::ChannelMap32;
 use crate::timestamp::Timestamp;
+use crate::device::DeviceType;
 
 pub mod audio_buffer;
 pub mod backends;
@@ -20,29 +20,6 @@ pub mod prelude;
 pub mod stream;
 pub mod timestamp;
 
-bitflags! {
-    /// Represents the types/capabilities of an audio device.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-    pub struct DeviceType: u32 {
-        /// Device supports audio input.
-        const INPUT = 1 << 0;
-
-        /// Device supports audio output.
-        const OUTPUT = 1 << 1;
-
-        /// Physical audio device (hardware).
-        const PHYSICAL = 1 << 2;
-
-        /// Virtual/software application device.
-        const APPLICATION = 1 << 3;
-
-        /// This device is set as default
-        const DEFAULT = 1 << 4;
-
-        /// Device that supports both input and output.
-        const DUPLEX = Self::INPUT.bits() | Self::OUTPUT.bits();
-    }
-}
 
 /// Audio drivers provide access to the inputs and outputs of devices.
 /// Several drivers might provide the same accesses, some sharing it with other applications,
@@ -68,37 +45,6 @@ pub trait AudioDriver {
     fn list_devices(&self) -> Result<impl IntoIterator<Item = Self::Device>, Self::Error>;
 }
 
-impl DeviceType {
-    /// Returns true if this device type has the input capability.
-    pub fn is_input(&self) -> bool {
-        self.contains(Self::INPUT)
-    }
-
-    /// Returns true if this device type has the output capability.
-    pub fn is_output(&self) -> bool {
-        self.contains(Self::OUTPUT)
-    }
-
-    /// Returns true if this device type is a physical device.
-    pub fn is_physical(&self) -> bool {
-        self.contains(Self::PHYSICAL)
-    }
-
-    /// Returns true if this device type is an application/virtual device.
-    pub fn is_application(&self) -> bool {
-        self.contains(Self::APPLICATION)
-    }
-
-    /// Returns true if this device is set as default
-    pub fn is_default(&self) -> bool {
-        self.contains(Self::DEFAULT)
-    }
-
-    /// Returns true if this device type supports both input and output.
-    pub fn is_duplex(&self) -> bool {
-        self.contains(Self::DUPLEX)
-    }
-}
 
 /// Configuration for an audio stream.
 #[derive(Debug, Clone, Copy, PartialEq)]
