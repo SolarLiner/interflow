@@ -1,5 +1,4 @@
-use crate::backends::pipewire::error::PipewireError;
-use crate::DeviceType;
+use crate::{backends::pipewire::error::PipewireError, device::DeviceType};
 use libspa::utils::dict::DictRef;
 use pipewire::context::Context;
 use pipewire::main_loop::MainLoop;
