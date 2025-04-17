@@ -35,7 +35,7 @@ and format conversion.
 
 Ensure you have the following installed on your system:
 
-- [Rust](https://www.rust-lang.org/tools/install)
+- [Rust](https://www.rust-lang.org/tools/install) (1.84 and up supported)
 - Platform-specific audio development libraries:
 - **Windows**: Ensure you have the Windows SDK installed, and optionally the
   ASIO SDK if the `asio` feature is enabled.

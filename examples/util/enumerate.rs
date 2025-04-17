@@ -8,8 +8,9 @@ where
     eprintln!("Driver name   : {}", Driver::DISPLAY_NAME);
     eprintln!("Driver version: {}", driver.version()?);
     eprintln!("Default device");
-    for device_type in [DeviceType::Input, DeviceType::Output] {
-        eprint!("\t{device_type:?}:\t");
+    for (s, device_type) in [("Input", DeviceType::INPUT), ("Output", DeviceType::OUTPUT)] {
+        let device_type = device_type | DeviceType::PHYSICAL;
+        eprint!("\t{s}:\t");
         if let Some(device) = driver.default_device(device_type)? {
             eprintln!("{}", device.name());
         } else {

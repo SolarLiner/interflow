@@ -38,10 +38,8 @@ impl AudioDevice for WasapiDevice {
     }
 
     fn is_config_supported(&self, config: &StreamConfig) -> bool {
-        match self.device_type {
-            DeviceType::Output => stream::is_output_config_supported(self.device.clone(), config),
-            _ => false,
-        }
+        self.device_type.contains(DeviceType::OUTPUT)
+            && stream::is_output_config_supported(self.device.clone(), config)
     }
 
     fn enumerate_configurations(&self) -> Option<impl IntoIterator<Item = StreamConfig>> {

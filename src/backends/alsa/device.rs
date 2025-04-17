@@ -52,6 +52,17 @@ impl AudioDevice for AlsaDevice {
         Cow::Borrowed(self.name.as_str())
     }
 
+    fn device_type(&self) -> DeviceType {
+        match self.direction {
+            alsa::Direction::Capture => DeviceType::PHYSICAL | DeviceType::INPUT,
+            alsa::Direction::Playback => DeviceType::PHYSICAL | DeviceType::OUTPUT,
+        }
+    }
+
+    fn channel_map(&self) -> impl IntoIterator<Item = Channel> {
+        []
+    }
+
     fn is_config_supported(&self, config: &StreamConfig) -> bool {
         self.get_hwp(config)
             .inspect_err(|err| {
@@ -109,11 +120,7 @@ impl AudioOutputDevice for AlsaDevice {
 
 impl AlsaDevice {
     /// Shortcut constructor for getting ALSA devices directly.
-    pub fn default_device(device_type: DeviceType) -> Result<Option<Self>, alsa::Error> {
-        let direction = match device_type {
-            DeviceType::Input => alsa::Direction::Capture,
-            DeviceType::Output => alsa::Direction::Playback,
-        };
+    pub fn default_device(direction: alsa::Direction) -> Result<Option<Self>, alsa::Error> {
         let pcm = Rc::new(PCM::new("default", direction, true)?);
         Ok(Some(Self {
             pcm,

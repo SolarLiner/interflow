@@ -43,11 +43,16 @@ impl AudioDriver for AlsaDriver {
     const DISPLAY_NAME: &'static str = "ALSA";
 
     fn version(&self) -> Result<Cow<str>, Self::Error> {
-        Ok(Cow::Borrowed("ALSA (version unknown)"))
+        Ok(Cow::Borrowed("unknown"))
     }
 
     fn default_device(&self, device_type: DeviceType) -> Result<Option<Self::Device>, Self::Error> {
-        Ok(AlsaDevice::default_device(device_type)?)
+        let direction = match device_type {
+            _ if device_type.is_input() => alsa::Direction::Capture,
+            _ if device_type.is_output() => alsa::Direction::Playback,
+            _ => return Ok(None),
+        };
+        Ok(AlsaDevice::default_device(direction)?)
     }
 
     fn list_devices(&self) -> Result<impl IntoIterator<Item = Self::Device>, Self::Error> {
