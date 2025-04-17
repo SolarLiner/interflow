@@ -2,9 +2,7 @@
 //!
 //! This module includes a proxy for gathering an input audio stream, and optionally process it to resample it to the
 //! output sample rate.
-use crate::audio_buffer::AudioRef;
-use crate::channel_map::Bitset;
-use crate::device::{AudioDevice, AudioInputDevice, AudioOutputDevice};
+use crate::device::{AudioInputDevice, AudioOutputDevice};
 use crate::stream::{
     AudioCallbackContext, AudioInputCallback, AudioOutputCallback, AudioStreamHandle, StreamConfig,
 };

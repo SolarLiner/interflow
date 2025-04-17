@@ -2,11 +2,7 @@ use std::{borrow::Cow, sync::Arc};
 
 use asio_sys as asio;
 
-use crate::{
-    device::{AudioDevice, DeviceType},
-    driver::AudioDriver,
-};
-
+use crate::{device::DeviceType, driver::AudioDriver};
 use super::{device::AsioDevice, error::AsioError};
 
 /// The ASIO driver.
@@ -36,12 +32,7 @@ impl AudioDriver for AsioDriver {
     fn default_device(&self, device_type: DeviceType) -> Result<Option<Self::Device>, Self::Error> {
         let mut iter = AsioDeviceList::new(self.asio.clone())?;
 
-        let dd = iter
-        .find(|device| match (device.device_type(), device_type) {
-            (DeviceType::Input | DeviceType::Duplex, DeviceType::Input) => true,
-            (DeviceType::Output | DeviceType::Duplex, DeviceType::Output) => true,
-            (a, b) => a == b,
-        });
+        let dd = iter.find(|device| device_type.intersects(device.device_type()));
         Ok(dd)
     }
 

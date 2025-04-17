@@ -6,6 +6,7 @@ rust-version = "1.80"
 license = "MIT"
 
 [dependencies]
+bitflags = "2.9.0"
 duplicate = "2.0.0"
 fixed-resample = "0.8.0"
 libspa = { version = "0.8.0", optional = true }
@@ -27,11 +28,11 @@ cfg_aliases = "0.2.1"
 
 [features]
 pipewire = ["dep:pipewire", "dep:libspa", "dep:libspa-sys", "dep:zerocopy"]
-asio = ["asio-sys", "num-traits"]
+asio = ["dep:asio-sys", "dep:num-traits"]
 
 [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd"))'.dependencies]
 alsa = "0.9.1"
-libc = "0.2.171"
+libc = "0.2.172"
 nix = "0.29.0"
 pipewire = { version = "0.8.0", optional = true }
 

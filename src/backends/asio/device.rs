@@ -36,9 +36,9 @@ impl AsioDevice {
         let is_input = driver.channels()?.ins > 0;
         let is_output = driver.channels()?.outs > 0;
         let device_type = match (is_input, is_output) {
-            (true, true) => DeviceType::Duplex,
-            (true, false) => DeviceType::Input,
-            (false, true) => DeviceType::Output,
+            (true, true) => DeviceType::DUPLEX,
+            (true, false) => DeviceType::INPUT,
+            (false, true) => DeviceType::OUTPUT,
             // todo
             (false, false) => return Err(AsioError::BackendError(asio::AsioError::NoDrivers)),
         };
@@ -51,6 +51,10 @@ impl AsioDevice {
             device_type,
             asio_streams,
         })
+    }
+
+    pub fn device_type(&self) -> DeviceType {
+        self.device_type
     }
 
     /// Create an input stream with the given configuration.
@@ -124,21 +128,19 @@ impl AudioDevice for AsioDevice {
         Cow::Borrowed(self.driver.name())
     }
 
-    fn device_type(&self) -> DeviceType {
-        self.device_type
-    }
-
     fn is_config_supported(&self, config: &StreamConfig) -> bool {
         let sample_rate = config.samplerate;
         self.driver.can_sample_rate(sample_rate).unwrap_or(false)
             && self.driver.channels().is_ok_and(|channels| {
                 let num_channels = config.channels as i32;
-                match self.device_type {
-                    DeviceType::Input => channels.ins >= num_channels,
-                    DeviceType::Output => channels.outs >= num_channels,
-                    DeviceType::Duplex => {
-                        channels.ins >= num_channels && channels.outs >= num_channels
-                    }
+                if self.device_type.contains(DeviceType::DUPLEX) {
+                    channels.ins >= num_channels && channels.outs >= num_channels
+                } else if self.device_type.contains(DeviceType::INPUT) {
+                    channels.ins >= num_channels
+                } else if self.device_type.contains(DeviceType::OUTPUT) {
+                    channels.outs >= num_channels
+                } else {
+                    false
                 }
             })
             && self.driver.buffersize_range().is_ok_and(|(min, max)| {
@@ -152,30 +154,38 @@ impl AudioDevice for AsioDevice {
     }
 
     fn enumerate_configurations(&self) -> Option<impl IntoIterator<Item = StreamConfig>> {
-        let sample_rates = [
-            44100.0, 48000.0, 96000.0, 192000.0, 384000.0, 768000.0,
-        ];
+        let sample_rates = [44100.0, 48000.0, 96000.0, 192000.0, 384000.0, 768000.0];
 
-        let buffer_size_range = self.driver.buffersize_range().ok().map(|(min, max)| {
-            (Some(min as usize), Some(max as usize))
-        })?;
+        let buffer_size_range = self
+            .driver
+            .buffersize_range()
+            .ok()
+            .map(|(min, max)| (Some(min as usize), Some(max as usize)))?;
 
-        let channels = self.driver.channels().ok().map(|channels| {
-            match self.device_type {
-                DeviceType::Input => channels.ins as u32,
-                DeviceType::Output => channels.outs as u32,
-                DeviceType::Duplex => channels.ins.max(channels.outs) as u32,
-                
+        let channels = self.driver.channels().ok().and_then(|channels| {
+            if self.device_type.contains(DeviceType::DUPLEX) {
+                Some(channels.ins.max(channels.outs) as u32)
+            } else if self.device_type.contains(DeviceType::INPUT) {
+                Some(channels.ins as u32)
+            } else if self.device_type.contains(DeviceType::OUTPUT) {
+                Some(channels.outs as u32)
+            } else {
+                // Return None if device type is neither input nor output
+                None
             }
         })?;
-        
+
         Some(sample_rates.into_iter().filter_map(move |samplerate| {
-            self.driver.can_sample_rate(samplerate).ok().filter(|&can| can).map(|_| StreamConfig {
-                channels,
-                samplerate,
-                buffer_size_range,
-                exclusive: false,
-            })
+            self.driver
+                .can_sample_rate(samplerate)
+                .ok()
+                .filter(|&can| can)
+                .map(|_| StreamConfig {
+                    channels,
+                    samplerate,
+                    buffer_size_range,
+                    exclusive: false,
+                })
         }))
     }
 }
@@ -672,8 +682,7 @@ unsafe fn asio_channel_slice_mut<T>(
     channel_index: usize,
 ) -> &mut [T] {
     let buffer_size = asio_stream.buffer_size as usize;
-    let buff_ptr: *mut T =
-        asio_stream.buffer_infos[channel_index].buffers[buffer_index] as *mut _;
+    let buff_ptr: *mut T = asio_stream.buffer_infos[channel_index].buffers[buffer_index] as *mut _;
     std::slice::from_raw_parts_mut(buff_ptr, buffer_size)
 }
 
