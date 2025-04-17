@@ -7,8 +7,8 @@ use std::fmt::Formatter;
 
 use crate::audio_buffer::{AudioMut, AudioRef};
 use crate::channel_map::ChannelMap32;
-use crate::timestamp::Timestamp;
 use crate::device::DeviceType;
+use crate::timestamp::Timestamp;
 
 pub mod audio_buffer;
 pub mod backends;
@@ -19,7 +19,6 @@ pub mod duplex;
 pub mod prelude;
 pub mod stream;
 pub mod timestamp;
-
 
 /// Audio drivers provide access to the inputs and outputs of devices.
 /// Several drivers might provide the same accesses, some sharing it with other applications,
@@ -44,7 +43,6 @@ pub trait AudioDriver {
     /// List all devices available through this audio driver.
     fn list_devices(&self) -> Result<impl IntoIterator<Item = Self::Device>, Self::Error>;
 }
-
 
 /// Configuration for an audio stream.
 #[derive(Debug, Clone, Copy, PartialEq)]

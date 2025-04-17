@@ -28,6 +28,7 @@ cfg_aliases = "0.2.1"
 
 [features]
 pipewire = ["dep:pipewire", "dep:libspa", "dep:libspa-sys", "dep:zerocopy"]
+asio = ["dep:asio-sys", "dep:num-traits"]
 
 [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd"))'.dependencies]
 alsa = "0.9.1"
@@ -52,6 +53,8 @@ windows = { version = "0.61.1", features = [
     "Win32_Media_Multimedia",
     "Win32_UI_Shell_PropertiesSystem"
 ]}
+asio-sys = { version = "0.2.2", optional = true }
+num-traits = {version = "0.2.19", optional = true }
 
 [[example]]
 name = "enumerate_alsa"
@@ -69,3 +72,8 @@ path = "examples/enumerate_wasapi.rs"
 name = "enumerate_pipewire"
 path = "examples/enumerate_pipewire.rs"
 required-features = ["pipewire"]
+
+[[example]]
+name = "enumerate_asio"
+path = "examples/enumerate_asio.rs"
+required-features = ["asio"]

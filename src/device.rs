@@ -1,7 +1,7 @@
-use bitflags::bitflags;
 use crate::duplex::AudioDuplexCallback;
 use crate::stream::{AudioInputCallback, AudioOutputCallback, AudioStreamHandle, StreamConfig};
 use crate::SendEverywhereButOnWeb;
+use bitflags::bitflags;
 use std::borrow::Cow;
 
 /// Trait for types describing audio devices. Audio devices have zero or more inputs and outputs,
@@ -130,7 +130,6 @@ pub trait AudioDuplexDevice: AudioDevice {
     }
 }
 
-
 bitflags! {
     /// Represents the types/capabilities of an audio device.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -154,7 +153,6 @@ bitflags! {
         const DUPLEX = Self::INPUT.bits() | Self::OUTPUT.bits();
     }
 }
-
 
 impl DeviceType {
     /// Returns true if this device type has the input capability.

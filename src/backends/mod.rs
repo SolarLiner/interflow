@@ -24,6 +24,9 @@ pub mod wasapi;
 #[cfg(all(os_pipewire, feature = "pipewire"))]
 pub mod pipewire;
 
+#[cfg(os_asio)]
+pub mod asio;
+
 /// Returns the default driver.
 ///
 /// "Default" here means that it is a supported driver that is available on the platform.
