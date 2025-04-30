@@ -25,7 +25,7 @@ and format conversion.
 - [ ] ASIO
 - [x] ALSA
 - [ ] PulseAudio
-- [ ] PipeWire
+- [x] PipeWire
 - [ ] JACK
 - [x] CoreAudio
 
