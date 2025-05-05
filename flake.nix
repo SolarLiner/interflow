@@ -26,7 +26,10 @@
         };
         devShells.default = pkgs.clangStdenv.mkDerivation {
           name = "interflow-devshell";
-          buildInputs = buildInputs ++ nativeBuildInputs;
+          buildInputs = buildInputs ++ nativeBuildInputs ++ (with pkgs; [pre-commit]);
+          shellHook = ''
+			  pre-commit install
+          '';
           inherit LIBCLANG_PATH;
         };
       }
