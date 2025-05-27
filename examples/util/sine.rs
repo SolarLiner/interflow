@@ -1,4 +1,4 @@
-use interflow::{AudioCallbackContext, AudioOutput, AudioOutputCallback};
+use interflow::{AudioCallback, AudioCallbackContext, AudioInput, AudioOutput};
 use std::f32::consts::TAU;
 
 pub struct SineWave {
@@ -6,14 +6,20 @@ pub struct SineWave {
     pub phase: f32,
 }
 
-impl AudioOutputCallback for SineWave {
-    fn on_output_data(&mut self, context: AudioCallbackContext, mut output: AudioOutput<f32>) {
+impl AudioCallback for SineWave {
+    fn prepare(&mut self, _context: AudioCallbackContext) {}
+    fn process_audio(
+        &mut self,
+        context: AudioCallbackContext,
+        _input: AudioInput<f32>,
+        mut output: AudioOutput<f32>,
+    ) {
         eprintln!(
             "Callback called, timestamp: {:2.3} s",
             context.timestamp.as_seconds()
         );
         let sr = context.timestamp.samplerate as f32;
-        for i in 0..output.buffer.num_samples() {
+        for i in 0..output.buffer.num_frames() {
             output.buffer.set_mono(i, self.next_sample(sr));
         }
         // Reduce amplitude to not blow up speakers and ears
