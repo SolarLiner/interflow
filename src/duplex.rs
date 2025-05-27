@@ -3,14 +3,15 @@
 //! This module includes a proxy for gathering an input audio stream and optionally processing it to resample it to the
 //! output sample rate.
 use crate::audio_buffer::AudioRef;
-use crate::channel_map::Bitset;
+use crate::timestamp::{AtomicTimestamp, Timestamp};
 use crate::{
     AudioCallback, AudioCallbackContext, AudioDevice, AudioInput, AudioOutput, AudioStreamHandle,
-    SendEverywhereButOnWeb, StreamConfig,
+    StreamConfig,
 };
 use fixed_resample::{PushStatus, ReadStatus, ResamplingChannelConfig};
 use std::num::NonZeroUsize;
 use std::ops::IndexMut;
+use std::sync::Arc;
 use thiserror::Error;
 
 const MAX_CHANNELS: usize = 64;
@@ -24,6 +25,7 @@ pub struct DuplexStream<Callback, Error> {
 /// Input proxy for transferring an input signal to a separate output callback to be processed as a duplex stream.
 pub struct InputProxy {
     producer: Option<fixed_resample::ResamplingProd<f32, MAX_CHANNELS>>,
+    timestamp: Arc<AtomicTimestamp>,
     scratch_buffer: Option<Box<[f32]>>, // TODO: switch to non-interleaved processing
     receive_output_samplerate: rtrb::Consumer<u32>,
     send_consumer: rtrb::Producer<fixed_resample::ResamplingCons<f32>>,
@@ -42,6 +44,7 @@ impl InputProxy {
         (
             Self {
                 producer: None,
+                timestamp: Arc::new(Timestamp::new(0.0).into()),
                 receive_output_samplerate,
                 scratch_buffer: None,
                 send_consumer,
@@ -56,11 +59,11 @@ impl InputProxy {
         context: AudioCallbackContext,
         output_samplerate: u32,
     ) -> bool {
-        let Some(num_channels) = NonZeroUsize::new(context.stream_config.output_channels) else {
+        let Some(num_channels) = NonZeroUsize::new(context.stream_config.input_channels) else {
             log::error!("Input proxy: no input channels given");
             return true;
         };
-        let input_samplerate = context.stream_config.samplerate as _;
+        let input_samplerate = context.stream_config.sample_rate as _;
         log::debug!(
             "Creating resampling channel ({} Hz) -> ({} Hz) ({} channels)",
             input_samplerate,
@@ -82,7 +85,7 @@ impl InputProxy {
             Ok(_) => {
                 log::debug!(
                     "Input proxy: resampling channel ({} Hz) sent",
-                    context.stream_config.samplerate
+                    context.stream_config.sample_rate
                 );
             }
             Err(err) => {
@@ -97,6 +100,8 @@ impl AudioCallback for InputProxy {
     fn prepare(&mut self, context: AudioCallbackContext) {
         let len = context.stream_config.input_channels * context.stream_config.max_frame_count;
         self.scratch_buffer = Some(Box::from_iter(std::iter::repeat_n(0.0, len)));
+        self.timestamp
+            .update(Timestamp::new(context.stream_config.sample_rate));
     }
 
     fn process_audio(
@@ -133,6 +138,7 @@ impl AudioCallback for InputProxy {
             input.buffer.copy_into_interleaved(scratch),
             "Cannot fail: len is computed from slice itself"
         );
+        self.timestamp.add_frames(input.buffer.num_frames() as _);
         match producer.push_interleaved(&scratch[..len]) {
             PushStatus::OverflowOccurred { .. } => {
                 log::error!("Input proxy: overflow occurred");
@@ -166,6 +172,7 @@ pub struct DuplexCallback<Callback> {
     callback: Callback,
     storage_raw: Option<Box<[f32]>>,
     current_samplerate: u32,
+    input_timestamp: Arc<AtomicTimestamp>,
     num_input_channels: usize,
     resample_config: ResamplingChannelConfig,
 }
@@ -202,7 +209,7 @@ impl<Callback: AudioCallback> AudioCallback for DuplexCallback<Callback> {
             "DuplexCallback::process_audio");
 
         // If changed, send the new output samplerate to input proxy
-        let samplerate = context.stream_config.samplerate as u32;
+        let samplerate = context.stream_config.sample_rate as u32;
         if samplerate != self.current_samplerate && self.send_samplerate.push(samplerate).is_ok() {
             log::debug!("Output samplerate changed to {}", samplerate);
             self.current_samplerate = samplerate;
@@ -236,11 +243,15 @@ impl<Callback: AudioCallback> AudioCallback for DuplexCallback<Callback> {
             }
             AudioRef::from_interleaved(slice, input.num_channels().get()).unwrap()
         } else {
-            AudioRef::from_interleaved(&[], self.num_input_channels).unwrap()
+            log::error!("No resampling input, dropping input frames");
+            let len = frames * self.num_input_channels;
+            let slice = self.storage_raw.as_mut().unwrap().index_mut(..len);
+            slice.fill(0.0);
+            AudioRef::from_interleaved(slice, self.num_input_channels).unwrap()
         };
 
         let input = AudioInput {
-            timestamp: context.timestamp,
+            timestamp: self.input_timestamp.as_timestamp(),
             buffer: storage,
         };
         // Run user callback
@@ -447,6 +458,7 @@ pub fn create_duplex_stream<
     DuplexCallbackError<InputDevice::Error, OutputDevice::Error>,
 > {
     let (proxy, send_samplerate, receive_consumer) = InputProxy::new();
+    let input_timestamp = proxy.timestamp.clone();
     let input_handle = input_device
         .create_stream(config.input_config(), proxy)
         .map_err(DuplexCallbackError::InputError)?;
@@ -456,6 +468,7 @@ pub fn create_duplex_stream<
             DuplexCallback {
                 input: None,
                 send_samplerate,
+                input_timestamp,
                 receive_consumer,
                 callback,
                 storage_raw: None,

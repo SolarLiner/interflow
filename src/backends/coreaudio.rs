@@ -61,7 +61,6 @@ fn set_device_property<T>(
 use thiserror::Error;
 
 use crate::audio_buffer::{AudioBuffer, Sample};
-use crate::channel_map::Bitset;
 use crate::prelude::{AudioMut, AudioRef, ChannelMap32};
 use crate::timestamp::Timestamp;
 use crate::{
@@ -360,7 +359,7 @@ impl<Callback: 'static + Send + AudioCallback> CoreAudioStream<Callback> {
     fn new_input(
         device_id: AudioDeviceID,
         stream_config: StreamConfig,
-        callback: Callback,
+        mut callback: Callback,
     ) -> Result<Self, CoreAudioError> {
         let mut audio_unit = audio_unit_from_device_id(device_id, true)?;
         let asbd =
@@ -371,18 +370,28 @@ impl<Callback: 'static + Send + AudioCallback> CoreAudioStream<Callback> {
             Element::Input,
             Some(&asbd),
         )?;
+        let frame_count = audio_unit.get_property(
+            kAudioDevicePropertyBufferFrameSize,
+            Scope::Input,
+            Element::Input,
+        )?;
         let stream_config = ResolvedStreamConfig {
-            samplerate: asbd.mSampleRate,
+            sample_rate: asbd.mSampleRate,
             input_channels: asbd.mChannelsPerFrame as _,
             output_channels: 0,
-            max_frame_count: asbd.mFramesPerPacket as _,
+            max_frame_count: frame_count,
         };
         let mut buffer =
-            AudioBuffer::zeroed(asbd.mChannelsPerFrame as _, stream_config.samplerate as _);
+            AudioBuffer::zeroed(asbd.mChannelsPerFrame as _, stream_config.sample_rate as _);
 
         // Set up the callback retrieval process without needing to make the callback `Sync`
         let (tx, rx) = oneshot::channel::<oneshot::Sender<Callback>>();
+        callback.prepare(AudioCallbackContext {
+            stream_config,
+            timestamp: Timestamp::new(asbd.mSampleRate),
+        });
         let mut callback = Some(callback);
+
         audio_unit.set_input_callback(move |args: Args<data::Interleaved<i16>>| {
             if let Ok(sender) = rx.try_recv() {
                 sender.send(callback.take().unwrap()).unwrap();
@@ -397,7 +406,7 @@ impl<Callback: 'static + Send + AudioCallback> CoreAudioStream<Callback> {
                 *out = inp.into_float();
             }
             let timestamp =
-                Timestamp::from_count(stream_config.samplerate, args.time_stamp.mSampleTime as _);
+                Timestamp::from_count(stream_config.sample_rate, args.time_stamp.mSampleTime as _);
             let input = AudioInput {
                 buffer: buffer.as_ref(),
                 timestamp,
@@ -428,7 +437,7 @@ impl<Callback: 'static + Send + AudioCallback> CoreAudioStream<Callback> {
     fn new_output(
         device_id: AudioDeviceID,
         stream_config: StreamConfig,
-        callback: Callback,
+        mut callback: Callback,
     ) -> Result<Self, CoreAudioError> {
         let mut audio_unit = audio_unit_from_device_id(device_id, false)?;
         let asbd =
@@ -439,17 +448,29 @@ impl<Callback: 'static + Send + AudioCallback> CoreAudioStream<Callback> {
             Element::Output,
             Some(&asbd),
         )?;
+        let frame_size = audio_unit.get_property(
+            kAudioDevicePropertyBufferFrameSize,
+            Scope::Output,
+            Element::Output,
+        )?;
         let stream_config = ResolvedStreamConfig {
-            samplerate: asbd.mSampleRate,
+            sample_rate: asbd.mSampleRate,
             input_channels: 0,
             output_channels: asbd.mChannelsPerFrame as _,
-            max_frame_count: asbd.mFramesPerPacket as _,
+            max_frame_count: frame_size,
         };
-        let mut buffer =
-            AudioBuffer::zeroed(stream_config.output_channels, stream_config.samplerate as _);
+        let mut buffer = AudioBuffer::zeroed(
+            stream_config.output_channels,
+            stream_config.sample_rate as _,
+        );
         // Set up the callback retrieval process without needing to make the callback `Sync`
         let (tx, rx) = oneshot::channel::<oneshot::Sender<Callback>>();
+        callback.prepare(AudioCallbackContext {
+            stream_config,
+            timestamp: Timestamp::new(asbd.mSampleRate),
+        });
         let mut callback = Some(callback);
+
         audio_unit.set_render_callback(move |mut args: Args<data::NonInterleaved<f32>>| {
             if let Ok(sender) = rx.try_recv() {
                 sender.send(callback.take().unwrap()).unwrap();
@@ -457,7 +478,7 @@ impl<Callback: 'static + Send + AudioCallback> CoreAudioStream<Callback> {
             }
             let mut buffer = buffer.slice_mut(..args.num_frames);
             let timestamp =
-                Timestamp::from_count(stream_config.samplerate, args.time_stamp.mSampleTime as _);
+                Timestamp::from_count(stream_config.sample_rate, args.time_stamp.mSampleTime as _);
             let dummy_input = AudioInput {
                 buffer: AudioRef::empty(),
                 timestamp: Timestamp::new(asbd.mSampleRate),

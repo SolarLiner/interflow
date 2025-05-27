@@ -4,10 +4,13 @@ use std::f32::consts::TAU;
 pub struct SineWave {
     pub frequency: f32,
     pub phase: f32,
+    step_frequency_scaling: f32,
 }
 
 impl AudioCallback for SineWave {
-    fn prepare(&mut self, _context: AudioCallbackContext) {}
+    fn prepare(&mut self, context: AudioCallbackContext) {
+        self.step_frequency_scaling = context.stream_config.sample_rate.recip() as f32;
+    }
     fn process_audio(
         &mut self,
         context: AudioCallbackContext,
@@ -20,7 +23,7 @@ impl AudioCallback for SineWave {
         );
         let sr = context.timestamp.samplerate as f32;
         for i in 0..output.buffer.num_frames() {
-            output.buffer.set_mono(i, self.next_sample(sr));
+            output.buffer.set_mono(i, self.next_sample());
         }
         // Reduce amplitude to not blow up speakers and ears
         output.buffer.change_amplitude(0.125);
@@ -32,11 +35,12 @@ impl SineWave {
         Self {
             frequency,
             phase: 0.0,
+            step_frequency_scaling: 0.0,
         }
     }
 
-    pub fn next_sample(&mut self, samplerate: f32) -> f32 {
-        let step = samplerate.recip() * self.frequency;
+    pub fn next_sample(&mut self) -> f32 {
+        let step = self.step_frequency_scaling * self.frequency;
         let y = (TAU * self.phase).sin();
         self.phase += step;
         if self.phase > 1. {
