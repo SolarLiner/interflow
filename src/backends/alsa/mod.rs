@@ -50,7 +50,7 @@ impl AudioDriver for AlsaDriver {
             _ if device_type.is_output() => alsa::Direction::Playback,
             _ => return Ok(None),
         };
-        Ok(AlsaDevice::default_device(direction)?)
+        Ok(Some(AlsaDevice::default_device(direction)?))
     }
 
     fn list_devices(&self) -> Result<impl IntoIterator<Item = Self::Device>, Self::Error> {
