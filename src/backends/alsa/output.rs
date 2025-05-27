@@ -2,9 +2,10 @@ use crate::audio_buffer::AudioMut;
 use crate::backends::alsa::stream::AlsaStream;
 use crate::backends::alsa::AlsaError;
 use crate::prelude::alsa::device::AlsaDevice;
-use crate::{AudioCallbackContext, AudioOutput, AudioOutputCallback, StreamConfig};
+use crate::prelude::{AudioRef, Timestamp};
+use crate::{AudioCallback, AudioCallbackContext, AudioInput, AudioOutput, StreamConfig};
 
-impl<Callback: 'static + Send + AudioOutputCallback> AlsaStream<Callback> {
+impl<Callback: 'static + Send + AudioCallback> AlsaStream<Callback> {
     pub(super) fn new_output(
         name: String,
         stream_config: StreamConfig,
@@ -16,15 +17,19 @@ impl<Callback: 'static + Send + AudioOutputCallback> AlsaStream<Callback> {
             callback,
             move |ctx, recover| {
                 let context = AudioCallbackContext {
-                    stream_config,
+                    stream_config: *ctx.config,
                     timestamp: *ctx.timestamp,
                 };
-                let input = AudioOutput {
+                let dummy_input = AudioInput {
+                    timestamp: Timestamp::new(ctx.config.sample_rate),
+                    buffer: AudioRef::empty(),
+                };
+                let output = AudioOutput {
                     buffer: AudioMut::from_interleaved_mut(&mut ctx.buffer[..], ctx.num_channels)
                         .unwrap(),
                     timestamp: *ctx.timestamp,
                 };
-                ctx.callback.on_output_data(context, input);
+                ctx.callback.process_audio(context, dummy_input, output);
                 *ctx.timestamp += ctx.num_frames as u64;
                 if let Err(err) = ctx.io.writei(&ctx.buffer[..]) {
                     recover(err)?;

@@ -2,9 +2,11 @@ use crate::backends::alsa::device::AlsaDevice;
 use crate::backends::alsa::{triggerfd, AlsaError};
 use crate::channel_map::{Bitset, ChannelMap32};
 use crate::timestamp::Timestamp;
-use crate::{AudioStreamHandle, StreamConfig};
-use alsa::pcm;
+use crate::{
+    AudioCallback, AudioCallbackContext, AudioStreamHandle, ResolvedStreamConfig, StreamConfig,
+};
 use alsa::PollDescriptors;
+use alsa::{pcm, Direction};
 use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
@@ -29,7 +31,7 @@ impl<Callback> AudioStreamHandle<Callback> for AlsaStream<Callback> {
     }
 }
 
-impl<Callback: 'static + Send> AlsaStream<Callback> {
+impl<Callback: 'static + AudioCallback> AlsaStream<Callback> {
     pub(super) fn new_generic(
         stream_config: StreamConfig,
         device: impl 'static + Send + FnOnce() -> Result<AlsaDevice, alsa::Error>,
@@ -64,24 +66,31 @@ impl<Callback: 'static + Send> AlsaStream<Callback> {
                 let period_size = period_size as usize;
                 log::info!("Period size : {period_size}");
                 let num_channels = hwp.get_channels()? as usize;
-                log::info!("Num channels: {num_channels}");
-                let samplerate = hwp.get_rate()? as f64;
-                log::info!("Sample rate : {samplerate}");
-                let stream_config = StreamConfig {
-                    samplerate,
-                    output_channels: ChannelMap32::default()
-                        .with_indices(std::iter::repeat(1).take(num_channels)),
-                    buffer_size_range: (Some(period_size), Some(period_size)),
-                    exclusive: false,
+                let (input_channels, output_channels) = match device.direction {
+                    Direction::Playback => (0, num_channels),
+                    Direction::Capture => (num_channels, 0),
                 };
-                let mut timestamp = Timestamp::new(samplerate);
+                log::info!("Num channels: {num_channels}");
+                let sample_rate = hwp.get_rate()? as f64;
+                log::info!("Sample rate : {sample_rate}");
+                let stream_config = ResolvedStreamConfig {
+                    sample_rate,
+                    input_channels,
+                    output_channels,
+                    max_frame_count: period_size,
+                };
+                let mut timestamp = Timestamp::new(sample_rate);
                 let mut buffer = vec![0f32; period_size * num_channels];
-                let latency = period_size as f64 / samplerate;
+                let latency = period_size as f64 / sample_rate;
                 device.pcm.prepare()?;
                 if device.pcm.state() != pcm::State::Running {
                     log::info!("Device not already started, starting now");
                     device.pcm.start()?;
                 }
+                callback.prepare(AudioCallbackContext {
+                    stream_config,
+                    timestamp: Timestamp::new(sample_rate),
+                });
                 let _try = || loop {
                     let frames = device.pcm.avail_update()? as usize;
                     if frames == 0 {
@@ -133,7 +142,7 @@ impl<Callback: 'static + Send> AlsaStream<Callback> {
 }
 
 pub(super) struct StreamContext<'a, Callback: 'a> {
-    pub(super) config: &'a StreamConfig,
+    pub(super) config: &'a ResolvedStreamConfig,
     pub(super) timestamp: &'a mut Timestamp,
     pub(super) io: &'a pcm::IO<'a, f32>,
     pub(super) num_channels: usize,
