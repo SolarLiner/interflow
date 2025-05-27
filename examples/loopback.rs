@@ -14,8 +14,8 @@ fn main() -> Result<()> {
     input_config.buffer_size_range = (Some(128), Some(512));
     let mut output_config = output.default_output_config().unwrap();
     output_config.buffer_size_range = (Some(128), Some(512));
-    input_config.channels = 0b01;
-    output_config.channels = 0b11;
+    input_config.output_channels = 0b01;
+    output_config.output_channels = 0b11;
     let value = Arc::new(AtomicF32::new(0.));
     let config = DuplexStreamConfig::new(input_config, output_config);
     let stream =

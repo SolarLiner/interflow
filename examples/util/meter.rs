@@ -42,7 +42,7 @@ impl PeakMeter {
     }
 
     pub fn process_buffer(&mut self, buffer: AudioRef<f32>) -> f32 {
-        let buffer_duration = buffer.num_samples() as f32 * self.dt;
+        let buffer_duration = buffer.num_frames() as f32 * self.dt;
         let peak_lin = buffer
             .channels()
             .flat_map(|ch| ch.iter().copied().max_by(f32::total_cmp))
