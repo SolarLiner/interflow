@@ -11,9 +11,7 @@ fn main() -> Result<()> {
 
     let device = default_input_device();
     let value = Arc::new(AtomicF32::new(0.));
-    let stream = device
-        .default_input_stream(RmsMeter::new(value.clone()))
-        .unwrap();
+    let stream = device.default_stream(RmsMeter::new(value.clone())).unwrap();
     util::display_peakmeter(value)?;
     stream.eject().unwrap();
     Ok(())
@@ -31,11 +29,17 @@ impl RmsMeter {
 }
 
 impl AudioCallback for RmsMeter {
-    fn process_audio(&mut self, context: AudioCallbackContext, input: AudioInput<f32>) {
+    fn prepare(&mut self, _: AudioCallbackContext) {}
+    fn process_audio(
+        &mut self,
+        context: AudioCallbackContext,
+        input: AudioInput<f32>,
+        _output: AudioOutput<f32>,
+    ) {
         let meter = self
             .meter
-            .get_or_insert_with(|| PeakMeter::new(context.stream_config.samplerate as f32, 15.0));
-        meter.set_samplerate(context.stream_config.samplerate as f32);
+            .get_or_insert_with(|| PeakMeter::new(context.stream_config.sample_rate as f32, 15.0));
+        meter.set_samplerate(context.stream_config.sample_rate as f32);
         meter.process_buffer(input.buffer.as_ref());
         self.value
             .store(meter.value(), std::sync::atomic::Ordering::Relaxed);

@@ -26,6 +26,7 @@
 
 use std::ops;
 use std::ops::AddAssign;
+use std::sync::atomic::AtomicU64;
 use std::time::Duration;
 
 /// Timestamp value, which computes duration information from a provided samplerate and a running
@@ -140,13 +141,61 @@ impl Timestamp {
         }
     }
 
+    /// Compute the number of seconds represented in this [`Timestamp`].
+    pub fn as_seconds(&self) -> f64 {
+        self.counter as f64 / self.samplerate
+    }
+
     /// Compute the duration represented by this [`Timestamp`].
     pub fn as_duration(&self) -> Duration {
         Duration::from_secs_f64(self.as_seconds())
     }
+}
 
-    /// Compute the number of seconds represented in this [`Timestamp`].
-    pub fn as_seconds(&self) -> f64 {
-        self.counter as f64 / self.samplerate
+/// Atomic version of [`Timestamp`] to be shared between threads. Mainly used by the [`crate::duplex`] module, but
+/// may be useful in user code as well.
+pub struct AtomicTimestamp {
+    samplerate: AtomicU64,
+    counter: AtomicU64,
+}
+
+impl AtomicTimestamp {
+    /// Update the contents with the provided [`Timestamp`].
+    pub fn update(&self, ts: Timestamp) {
+        self.samplerate.store(
+            ts.samplerate.to_bits(),
+            std::sync::atomic::Ordering::Relaxed,
+        );
+        self.counter
+            .store(ts.counter, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Load values and return them as a [`Timestamp`].
+    pub fn as_timestamp(&self) -> Timestamp {
+        Timestamp {
+            samplerate: f64::from_bits(self.samplerate.load(std::sync::atomic::Ordering::Relaxed)),
+            counter: self.counter.load(std::sync::atomic::Ordering::Relaxed),
+        }
+    }
+
+    /// Add the provided number of frames to this.
+    pub fn add_frames(&self, frames: u64) {
+        self.counter
+            .fetch_add(frames, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+impl From<Timestamp> for AtomicTimestamp {
+    fn from(value: Timestamp) -> Self {
+        Self {
+            samplerate: AtomicU64::new(value.samplerate.to_bits()),
+            counter: AtomicU64::new(value.counter),
+        }
+    }
+}
+
+impl From<AtomicTimestamp> for Timestamp {
+    fn from(value: AtomicTimestamp) -> Self {
+        value.as_timestamp()
     }
 }
