@@ -3,7 +3,7 @@ use crate::backends::pipewire::error::PipewireError;
 use crate::channel_map::Bitset;
 use crate::timestamp::Timestamp;
 use crate::{
-    AudioCallbackContext, AudioInput, AudioInputCallback, AudioOutput, AudioOutputCallback,
+    AudioCallback, AudioCallbackContext, AudioInput, AudioOutput, AudioOutputCallback,
     AudioStreamHandle, StreamConfig,
 };
 use libspa::buffer::Data;
@@ -86,7 +86,7 @@ impl<Callback: AudioOutputCallback> StreamInner<Callback> {
                 stream_config: self.config,
                 timestamp: self.timestamp,
             };
-            let num_frames = buffer.num_samples();
+            let num_frames = buffer.num_frames();
             let output = AudioOutput {
                 buffer,
                 timestamp: self.timestamp,
@@ -100,7 +100,7 @@ impl<Callback: AudioOutputCallback> StreamInner<Callback> {
     }
 }
 
-impl<Callback: AudioInputCallback> StreamInner<Callback> {
+impl<Callback: AudioCallback> StreamInner<Callback> {
     fn process_input(&mut self, channels: usize, frames: usize) -> usize {
         let buffer =
             AudioRef::from_interleaved(&self.scratch_buffer[..channels * frames], channels)
@@ -110,12 +110,12 @@ impl<Callback: AudioInputCallback> StreamInner<Callback> {
                 stream_config: self.config,
                 timestamp: self.timestamp,
             };
-            let num_frames = buffer.num_samples();
+            let num_frames = buffer.num_frames();
             let input = AudioInput {
                 buffer,
                 timestamp: self.timestamp,
             };
-            callback.on_input_data(context, input);
+            callback.process_audio(context, input);
             self.timestamp += num_frames as u64;
             num_frames
         } else {
@@ -161,7 +161,7 @@ impl<Callback: 'static + Send> StreamHandle<Callback> {
             let context = Context::new(&main_loop)?;
             let core = context.connect(None)?;
 
-            let channels = config.channels.count();
+            let channels = config.output_channels.count();
             let channels_str = channels.to_string();
             let buffer_size = stream_buffer_size(config.buffer_size_range);
 
@@ -248,7 +248,7 @@ impl<Callback: 'static + Send> StreamHandle<Callback> {
     }
 }
 
-impl<Callback: 'static + Send + AudioInputCallback> StreamHandle<Callback> {
+impl<Callback: 'static + Send + AudioCallback> StreamHandle<Callback> {
     /// Create an input Pipewire stream
     pub fn new_input(
         device_object_serial: Option<String>,

@@ -4,7 +4,7 @@ use crate::backends::wasapi::util::WasapiMMDevice;
 use crate::channel_map::Bitset;
 use crate::prelude::{AudioRef, Timestamp};
 use crate::{
-    AudioCallbackContext, AudioInput, AudioInputCallback, AudioOutput, AudioOutputCallback,
+    AudioCallback, AudioCallbackContext, AudioInput, AudioOutput, AudioOutputCallback,
     AudioStreamHandle, StreamConfig,
 };
 use duplicate::duplicate_item;
@@ -173,7 +173,8 @@ impl<Callback, Iface: Interface> AudioThread<Callback, Iface> {
                     format.Format = actual_format.read_unaligned();
                     CoTaskMemFree(actual_format.cast());
                     let sample_rate = format.Format.nSamplesPerSec;
-                    stream_config.channels = 0u32.with_indices(0..format.Format.nChannels as _);
+                    stream_config.output_channels =
+                        0u32.with_indices(0..format.Format.nChannels as _);
                     stream_config.samplerate = sample_rate as _;
                 }
                 format
@@ -246,7 +247,7 @@ impl<Callback, Iface: Interface> AudioThread<Callback, Iface> {
     }
 }
 
-impl<Callback: AudioInputCallback> AudioThread<Callback, Audio::IAudioCaptureClient> {
+impl<Callback: AudioCallback> AudioThread<Callback, Audio::IAudioCaptureClient> {
     fn run(mut self) -> Result<Callback, error::WasapiError> {
         set_thread_priority();
         unsafe {
@@ -270,7 +271,7 @@ impl<Callback: AudioInputCallback> AudioThread<Callback, Audio::IAudioCaptureCli
         }
         let Some(mut buffer) = AudioCaptureBuffer::<f32>::from_client(
             &self.interface,
-            self.stream_config.channels.count(),
+            self.stream_config.output_channels.count(),
         )?
         else {
             eprintln!("Null buffer from WASAPI");
@@ -282,9 +283,10 @@ impl<Callback: AudioInputCallback> AudioThread<Callback, Audio::IAudioCaptureCli
             timestamp,
         };
         let buffer =
-            AudioRef::from_interleaved(&mut buffer, self.stream_config.channels.count()).unwrap();
+            AudioRef::from_interleaved(&mut buffer, self.stream_config.output_channels.count())
+                .unwrap();
         let output = AudioInput { timestamp, buffer };
-        self.callback.on_input_data(context, output);
+        self.callback.process_audio(context, output);
         Ok(())
     }
 }
@@ -321,7 +323,7 @@ impl<Callback: AudioOutputCallback> AudioThread<Callback, Audio::IAudioRenderCli
         };
         let mut buffer = AudioRenderBuffer::<f32>::from_client(
             &self.interface,
-            self.stream_config.channels.count(),
+            self.stream_config.output_channels.count(),
             frames_requested,
         )?;
         let timestamp = self.output_timestamp()?;
@@ -330,7 +332,7 @@ impl<Callback: AudioOutputCallback> AudioThread<Callback, Audio::IAudioRenderCli
             timestamp,
         };
         let buffer =
-            AudioMut::from_interleaved_mut(&mut buffer, self.stream_config.channels.count())
+            AudioMut::from_interleaved_mut(&mut buffer, self.stream_config.output_channels.count())
                 .unwrap();
         let output = AudioOutput { timestamp, buffer };
         self.callback.on_output_data(context, output);
@@ -355,7 +357,7 @@ impl<Callback> AudioStreamHandle<Callback> for WasapiStream<Callback> {
     }
 }
 
-impl<Callback: 'static + Send + AudioInputCallback> WasapiStream<Callback> {
+impl<Callback: 'static + Send + AudioCallback> WasapiStream<Callback> {
     pub(crate) fn new_input(
         device: WasapiMMDevice,
         stream_config: StreamConfig,
@@ -440,7 +442,7 @@ fn stream_instant(audio_clock: &Audio::IAudioClock) -> Result<Duration, error::W
 
 pub(crate) fn config_to_waveformatextensible(config: &StreamConfig) -> Audio::WAVEFORMATEXTENSIBLE {
     let format_tag = KernelStreaming::WAVE_FORMAT_EXTENSIBLE;
-    let channels = config.channels as u16;
+    let channels = config.output_channels as u16;
     let sample_rate = config.samplerate as u32;
     let sample_bytes = size_of::<f32>() as u16;
     let avg_bytes_per_sec = u32::from(channels) * sample_rate * u32::from(sample_bytes);
@@ -507,7 +509,7 @@ pub(crate) fn is_output_config_supported(
             let new_channels = 0u32.with_indices(0..format.Format.nChannels as _);
             let new_samplerate = sample_rate as f64;
             if stream_config.samplerate != new_samplerate
-                || stream_config.channels.count() != new_channels.count()
+                || stream_config.output_channels.count() != new_channels.count()
             {
                 return Ok(false);
             }

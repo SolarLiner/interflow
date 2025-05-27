@@ -1,8 +1,8 @@
 use crate::backends::alsa::stream::AlsaStream;
 use crate::backends::alsa::AlsaError;
 use crate::{
-    AudioDevice, AudioInputCallback, AudioInputDevice, AudioOutputCallback, AudioOutputDevice,
-    Channel, DeviceType, StreamConfig,
+    AudioCallback, AudioDevice, AudioInputDevice, AudioOutputCallback, AudioOutputDevice, Channel,
+    DeviceType, StreamConfig,
 };
 use alsa::{pcm, PCM};
 use std::borrow::Cow;
@@ -60,13 +60,13 @@ impl AudioDevice for AlsaDevice {
 }
 
 impl AudioInputDevice for AlsaDevice {
-    type StreamHandle<Callback: AudioInputCallback> = AlsaStream<Callback>;
+    type StreamHandle<Callback: AudioCallback> = AlsaStream<Callback>;
 
     fn default_input_config(&self) -> Result<StreamConfig, Self::Error> {
         self.default_config()
     }
 
-    fn create_input_stream<Callback: 'static + Send + AudioInputCallback>(
+    fn create_input_stream<Callback: 'static + Send + AudioCallback>(
         &self,
         stream_config: StreamConfig,
         callback: Callback,
@@ -114,7 +114,7 @@ impl AlsaDevice {
 
     fn get_hwp(&self, config: &StreamConfig) -> Result<pcm::HwParams<'_>, alsa::Error> {
         let hwp = pcm::HwParams::any(&self.pcm)?;
-        hwp.set_channels(config.channels as _)?;
+        hwp.set_channels(config.output_channels as _)?;
         hwp.set_rate(config.samplerate as _, alsa::ValueOr::Nearest)?;
         if let Some(min) = config.buffer_size_range.0 {
             hwp.set_buffer_size_min(min as _)?;
@@ -152,7 +152,7 @@ impl AlsaDevice {
         let channels = (1 << channel_count) - 1;
         Ok(StreamConfig {
             samplerate: samplerate as _,
-            channels,
+            output_channels: channels,
             buffer_size_range: (None, None),
             exclusive: false,
         })

@@ -30,8 +30,8 @@ impl RmsMeter {
     }
 }
 
-impl AudioInputCallback for RmsMeter {
-    fn on_input_data(&mut self, context: AudioCallbackContext, input: AudioInput<f32>) {
+impl AudioCallback for RmsMeter {
+    fn process_audio(&mut self, context: AudioCallbackContext, input: AudioInput<f32>) {
         let meter = self
             .meter
             .get_or_insert_with(|| PeakMeter::new(context.stream_config.samplerate as f32, 15.0));

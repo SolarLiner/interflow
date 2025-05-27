@@ -69,7 +69,7 @@ impl<Callback: 'static + Send> AlsaStream<Callback> {
                 log::info!("Sample rate : {samplerate}");
                 let stream_config = StreamConfig {
                     samplerate,
-                    channels: ChannelMap32::default()
+                    output_channels: ChannelMap32::default()
                         .with_indices(std::iter::repeat(1).take(num_channels)),
                     buffer_size_range: (Some(period_size), Some(period_size)),
                     exclusive: false,
