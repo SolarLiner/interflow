@@ -1,10 +1,12 @@
-use crate::audio_buffer::{AudioMut, AudioRef};
 use crate::backends::pipewire::error::PipewireError;
 use crate::channel_map::Bitset;
 use crate::timestamp::Timestamp;
 use crate::{
-    AudioCallback, AudioCallbackContext, AudioInput, AudioOutput, AudioOutputCallback,
-    AudioStreamHandle, StreamConfig,
+    audio_buffer::{AudioMut, AudioRef},
+    ResolvedStreamConfig,
+};
+use crate::{
+    AudioCallback, AudioCallbackContext, AudioInput, AudioOutput, AudioStreamHandle, StreamConfig,
 };
 use libspa::buffer::Data;
 use libspa::param::audio::{AudioFormat, AudioInfoRaw};
@@ -39,17 +41,21 @@ struct StreamInner<Callback> {
     commands: rtrb::Consumer<StreamCommands<Callback>>,
     scratch_buffer: Box<[f32]>,
     callback: Option<Callback>,
-    config: StreamConfig,
+    config: ResolvedStreamConfig,
     timestamp: Timestamp,
     loop_ref: WeakMainLoop,
 }
 
-impl<Callback> StreamInner<Callback> {
+impl<Callback: AudioCallback> StreamInner<Callback> {
     fn handle_command(&mut self, command: StreamCommands<Callback>) {
         log::debug!("Handling command: {command:?}");
         match command {
-            StreamCommands::ReceiveCallback(callback) => {
+            StreamCommands::ReceiveCallback(mut callback) => {
                 debug_assert!(self.callback.is_none());
+                callback.prepare(AudioCallbackContext {
+                    stream_config: self.config,
+                    timestamp: self.timestamp,
+                });
                 self.callback = Some(callback);
             }
             StreamCommands::Eject(reply) => {
@@ -74,10 +80,10 @@ impl<Callback> StreamInner<Callback> {
     }
 }
 
-impl<Callback: AudioOutputCallback> StreamInner<Callback> {
-    fn process_output(&mut self, channels: usize, buffer_size: usize) -> usize {
-        let buffer = AudioMut::from_interleaved_mut(
-            &mut self.scratch_buffer[..channels * buffer_size],
+impl<Callback: AudioCallback> StreamInner<Callback> {
+    fn process_output(&mut self, channels: usize, frames: usize) -> usize {
+        let buffer = AudioMut::from_noninterleaved_mut(
+            &mut self.scratch_buffer[..channels * frames],
             channels,
         )
         .unwrap();
@@ -87,11 +93,15 @@ impl<Callback: AudioOutputCallback> StreamInner<Callback> {
                 timestamp: self.timestamp,
             };
             let num_frames = buffer.num_frames();
+            let dummy_input = AudioInput {
+                timestamp: Timestamp::new(self.config.sample_rate),
+                buffer: AudioRef::empty(),
+            };
             let output = AudioOutput {
                 buffer,
                 timestamp: self.timestamp,
             };
-            callback.on_output_data(context, output);
+            callback.process_audio(context, dummy_input, output);
             self.timestamp += num_frames as u64;
             num_frames
         } else {
@@ -115,7 +125,8 @@ impl<Callback: AudioCallback> StreamInner<Callback> {
                 buffer,
                 timestamp: self.timestamp,
             };
-            callback.process_audio(context, input);
+            let dummy_output = AudioOutput { timestamp: Timestamp::new(self.config.sample_rate), buffer: AudioMut::empty() };
+            callback.process_audio(context, input, dummy_output);
             self.timestamp += num_frames as u64;
             num_frames
         } else {
@@ -143,12 +154,11 @@ impl<Callback> AudioStreamHandle<Callback> for StreamHandle<Callback> {
     }
 }
 
-impl<Callback: 'static + Send> StreamHandle<Callback> {
+impl<Callback: 'static + AudioCallback> StreamHandle<Callback> {
     fn create_stream(
         device_object_serial: Option<String>,
         name: String,
-        mut config: StreamConfig,
-        user_properties: HashMap<Vec<u8>, Vec<u8>>,
+        config: StreamConfig,
         callback: Callback,
         direction: pipewire::spa::utils::Direction,
         process_frames: impl Fn(&mut [Data], &mut StreamInner<Callback>, usize) -> usize
@@ -161,7 +171,7 @@ impl<Callback: 'static + Send> StreamHandle<Callback> {
             let context = Context::new(&main_loop)?;
             let core = context.connect(None)?;
 
-            let channels = config.output_channels.count();
+            let channels = config.output_channels;
             let channels_str = channels.to_string();
             let buffer_size = stream_buffer_size(config.buffer_size_range);
 
@@ -169,6 +179,17 @@ impl<Callback: 'static + Send> StreamHandle<Callback> {
             for (key, value) in user_properties {
                 properties.insert(key, value);
             }
+
+            let input_channels = if direction == pipewire::spa::utils::Direction::Input {
+                channels
+            } else {
+                0
+            };
+            let output_channels = if direction == pipewire::spa::utils::Direction::Output {
+                channels
+            } else {
+                0
+            };
 
             properties.insert(*keys::MEDIA_TYPE, "Audio");
             properties.insert(*keys::MEDIA_ROLE, "Music");
@@ -189,7 +210,7 @@ impl<Callback: 'static + Send> StreamHandle<Callback> {
                     scratch_buffer: vec![0.0; MAX_FRAMES * channels].into_boxed_slice(),
                     loop_ref: main_loop.downgrade(),
                     config,
-                    timestamp: Timestamp::new(config.samplerate),
+                    timestamp: Timestamp::new(config.sample_rate),
                 })
                 .process(move |stream, inner| {
                     log::debug!("Processing stream");
@@ -220,7 +241,7 @@ impl<Callback: 'static + Send> StreamHandle<Callback> {
                     properties: {
                         let mut info = AudioInfoRaw::new();
                         info.set_format(AudioFormat::F32LE);
-                        info.set_rate(config.samplerate as u32);
+                        info.set_rate(config.sample_rate as u32);
                         info.set_channels(channels as u32);
                         info.into()
                     },
@@ -298,7 +319,7 @@ fn get_category(direction: pipewire::spa::utils::Direction) -> &'static str {
     }
 }
 
-impl<Callback: 'static + Send + AudioOutputCallback> StreamHandle<Callback> {
+impl<Callback: 'static + Send + AudioCallback> StreamHandle<Callback> {
     /// Create an output Pipewire stream
     pub fn new_output(
         device_object_serial: Option<String>,

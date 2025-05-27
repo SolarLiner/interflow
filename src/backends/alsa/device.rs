@@ -48,14 +48,14 @@ impl AudioDevice for AlsaDevice {
         let params = self.pcm.hw_params_current()?;
         let min = params
             .get_buffer_size_min()
+            .map(|x| x as usize)
             .inspect_err(|err| log::warn!("Cannot get buffer size: {err}"))
-            .ok()
-            .map(|x| x as usize);
+            .ok();
         let max = params
             .get_buffer_size_max()
+            .map(|x| x as usize)
             .inspect_err(|err| log::warn!("Cannot get buffer size: {err}"))
-            .ok()
-            .map(|x| x as usize);
+            .ok();
 
         let channels = params.get_channels()? as usize;
         let (input_channels, output_channels) =
@@ -66,7 +66,7 @@ impl AudioDevice for AlsaDevice {
             };
 
         Ok(StreamConfig {
-            samplerate: params.get_rate()? as _,
+            sample_rate: params.get_rate()? as _,
             buffer_size_range: (min, max),
             exclusive: false,
             input_channels,
@@ -121,7 +121,7 @@ impl AlsaDevice {
     fn get_hwp(&self, config: &StreamConfig) -> Result<pcm::HwParams<'_>, alsa::Error> {
         let hwp = pcm::HwParams::any(&self.pcm)?;
         hwp.set_channels(config.output_channels as _)?;
-        hwp.set_rate(config.samplerate as _, alsa::ValueOr::Nearest)?;
+        hwp.set_rate(config.sample_rate as _, alsa::ValueOr::Nearest)?;
         if let Some(min) = config.buffer_size_range.0 {
             hwp.set_buffer_size_min(min as _)?;
         }

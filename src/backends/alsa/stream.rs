@@ -1,6 +1,5 @@
 use crate::backends::alsa::device::AlsaDevice;
 use crate::backends::alsa::{triggerfd, AlsaError};
-use crate::channel_map::{Bitset, ChannelMap32};
 use crate::timestamp::Timestamp;
 use crate::{
     AudioCallback, AudioCallbackContext, AudioStreamHandle, ResolvedStreamConfig, StreamConfig,

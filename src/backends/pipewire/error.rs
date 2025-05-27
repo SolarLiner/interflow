@@ -6,4 +6,6 @@ pub enum PipewireError {
     BackendError(#[from] pipewire::Error),
     #[error("Cannot create Pipewire stream: {0}")]
     GenError(#[from] libspa::pod::serialize::GenError),
+    #[error("Device has invalid type")]
+    InvalidDeviceType,
 }

@@ -100,7 +100,7 @@ impl DeviceType {
 pub struct StreamConfig {
     /// Configured sample rate of the requested stream. The opened stream can have a different
     /// sample rate, so don't rely on this parameter being correct at runtime.
-    pub samplerate: f64,
+    pub sample_rate: f64,
     /// Number of input channels requested
     pub input_channels: usize,
     /// Number of output channels requested
