@@ -6,6 +6,7 @@ use std::borrow::Cow;
 use std::marker::PhantomData;
 
 pub struct PipewireDriver {
+    // Needed to make this type unable to be constructed directly
     __init: PhantomData<()>,
 }
 
