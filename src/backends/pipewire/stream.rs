@@ -13,11 +13,11 @@ use libspa::param::audio::{AudioFormat, AudioInfoRaw};
 use libspa::pod::Pod;
 use libspa::utils::Direction;
 use libspa_sys::{SPA_PARAM_EnumFormat, SPA_TYPE_OBJECT_Format};
-use pipewire::context::Context;
 use pipewire::keys;
 use pipewire::main_loop::{MainLoop, WeakMainLoop};
 use pipewire::properties::Properties;
 use pipewire::stream::{Stream, StreamFlags};
+use pipewire::{context::Context, node::NodeListener};
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Formatter;
@@ -52,6 +52,7 @@ impl<Callback: AudioCallback> StreamInner<Callback> {
         match command {
             StreamCommands::ReceiveCallback(mut callback) => {
                 debug_assert!(self.callback.is_none());
+                log::debug!("StreamCommands::ReceiveCallback prepare {:#?}", self.config);
                 callback.prepare(AudioCallbackContext {
                     stream_config: self.config,
                     timestamp: self.timestamp,
@@ -87,26 +88,25 @@ impl<Callback: AudioCallback> StreamInner<Callback> {
             channels,
         )
         .unwrap();
-        if let Some(callback) = self.callback.as_mut() {
-            let context = AudioCallbackContext {
-                stream_config: self.config,
-                timestamp: self.timestamp,
-            };
-            let num_frames = buffer.num_frames();
-            let dummy_input = AudioInput {
-                timestamp: Timestamp::new(self.config.sample_rate),
-                buffer: AudioRef::empty(),
-            };
-            let output = AudioOutput {
-                buffer,
-                timestamp: self.timestamp,
-            };
-            callback.process_audio(context, dummy_input, output);
-            self.timestamp += num_frames as u64;
-            num_frames
-        } else {
-            0
-        }
+        let Some(callback) = self.callback.as_mut() else {
+            return 0;
+        };
+        let context = AudioCallbackContext {
+            stream_config: self.config,
+            timestamp: self.timestamp,
+        };
+        let num_frames = buffer.num_frames();
+        let dummy_input = AudioInput {
+            timestamp: Timestamp::new(self.config.sample_rate),
+            buffer: AudioRef::empty(),
+        };
+        let output = AudioOutput {
+            buffer,
+            timestamp: self.timestamp,
+        };
+        callback.process_audio(context, dummy_input, output);
+        self.timestamp += num_frames as u64;
+        num_frames
     }
 }
 
@@ -125,7 +125,10 @@ impl<Callback: AudioCallback> StreamInner<Callback> {
                 buffer,
                 timestamp: self.timestamp,
             };
-            let dummy_output = AudioOutput { timestamp: Timestamp::new(self.config.sample_rate), buffer: AudioMut::empty() };
+            let dummy_output = AudioOutput {
+                timestamp: Timestamp::new(self.config.sample_rate),
+                buffer: AudioMut::empty(),
+            };
             callback.process_audio(context, input, dummy_output);
             self.timestamp += num_frames as u64;
             num_frames
@@ -155,7 +158,19 @@ impl<Callback> AudioStreamHandle<Callback> for StreamHandle<Callback> {
 }
 
 impl<Callback: 'static + AudioCallback> StreamHandle<Callback> {
-    fn create_stream(
+    fn create_stream(name: String, serial: Option<String>, config: StreamConfig, callback: Callback) -> Result<Self,
+        PipewireError> {
+        let handle = std::thread::Builder::new()
+            .name(format!("{name} audio thread"))
+            .spawn(move || {
+                let main_loop = MainLoop::new(None)?;
+                let context = Context::new(&main_loop)?;
+                let core = context.connect(None)?;
+                Ok(todo!())
+            });
+    }
+
+    fn create_stream_old(
         device_object_serial: Option<String>,
         name: String,
         config: StreamConfig,
@@ -171,7 +186,11 @@ impl<Callback: 'static + AudioCallback> StreamHandle<Callback> {
             let context = Context::new(&main_loop)?;
             let core = context.connect(None)?;
 
-            let channels = config.output_channels;
+            let channels = if direction == pipewire::spa::utils::Direction::Input {
+                config.input_channels
+            } else {
+                config.output_channels
+            };
             let channels_str = channels.to_string();
             let buffer_size = stream_buffer_size(config.buffer_size_range);
 
@@ -191,6 +210,13 @@ impl<Callback: 'static + AudioCallback> StreamHandle<Callback> {
                 0
             };
 
+            let config = ResolvedStreamConfig {
+                sample_rate: config.sample_rate.round(),
+                input_channels,
+                output_channels,
+                max_frame_count,
+            };
+
             properties.insert(*keys::MEDIA_TYPE, "Audio");
             properties.insert(*keys::MEDIA_ROLE, "Music");
             properties.insert(*keys::MEDIA_CATEGORY, get_category(direction));
@@ -207,7 +233,13 @@ impl<Callback: 'static + AudioCallback> StreamHandle<Callback> {
                 .add_local_listener_with_user_data(StreamInner {
                     callback: None,
                     commands: rx,
-                    scratch_buffer: vec![0.0; MAX_FRAMES * channels].into_boxed_slice(),
+                    scratch_buffer: {
+                        log::debug!(
+                            "StreamInner: allocating {} frames",
+                            max_frame_count * channels
+                        );
+                        vec![0.0; max_frame_count * channels].into_boxed_slice()
+                    },
                     loop_ref: main_loop.downgrade(),
                     config,
                     timestamp: Timestamp::new(config.sample_rate),
@@ -278,7 +310,7 @@ impl<Callback: 'static + Send + AudioCallback> StreamHandle<Callback> {
         properties: HashMap<Vec<u8>, Vec<u8>>,
         callback: Callback,
     ) -> Result<Self, PipewireError> {
-        Self::create_stream(
+        Self::create_stream_old(
             device_object_serial,
             name.to_string(),
             config,
@@ -328,7 +360,7 @@ impl<Callback: 'static + Send + AudioCallback> StreamHandle<Callback> {
         properties: HashMap<Vec<u8>, Vec<u8>>,
         callback: Callback,
     ) -> Result<Self, PipewireError> {
-        Self::create_stream(
+        Self::create_stream_old(
             device_object_serial,
             name.to_string(),
             config,

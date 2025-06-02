@@ -12,8 +12,6 @@ use std::borrow::Cow;
 use thiserror::Error;
 
 mod device;
-mod input;
-mod output;
 mod stream;
 mod triggerfd;
 
@@ -27,6 +25,8 @@ pub enum AlsaError {
     /// Error originates from I/O operations.
     #[error("I/O error: {0}")]
     IoError(#[from] nix::Error),
+    #[error("No channels have been opened")]
+    NoChannelsOpened,
 }
 
 /// ALSA driver type. ALSA is statically available without client configuration, therefore this type

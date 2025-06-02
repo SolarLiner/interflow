@@ -189,7 +189,9 @@ impl<Callback> DuplexCallback<Callback> {
 
 impl<Callback: AudioCallback> AudioCallback for DuplexCallback<Callback> {
     fn prepare(&mut self, context: AudioCallbackContext) {
+        log::debug!("Prepare duplex callback {:#?}", context.stream_config);
         let len = context.stream_config.output_channels * context.stream_config.max_frame_count;
+        log::debug!("Create storage space for {len} elements");
         self.storage_raw = Some(Box::from_iter(std::iter::repeat_n(0.0, len)));
         self.callback.prepare(context);
     }
