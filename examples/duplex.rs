@@ -13,7 +13,8 @@ fn main() -> Result<()> {
     log::info!("Opening output: {}", output.name());
     let config = StreamConfig {
         buffer_size_range: (Some(128), Some(512)),
-        input_channels: 1,
+        input_channels: 2,
+        output_channels: 2,
         ..output.default_config().unwrap()
     };
     let duplex_config = DuplexStreamConfig::new(config);
