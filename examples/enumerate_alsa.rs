@@ -1,3 +1,5 @@
+use crate::util::enumerate::enumerate_duplex_devices;
+
 mod util;
 
 #[cfg(os_alsa)]
@@ -7,7 +9,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     env_logger::init();
 
-    enumerate_devices(AlsaDriver)
+    enumerate_devices(AlsaDriver)?;
+    enumerate_duplex_devices(AlsaDriver)?;
+    Ok(())
 }
 
 #[cfg(not(os_alsa))]
