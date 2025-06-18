@@ -19,13 +19,15 @@ use thiserror::Error;
 
 use crate::audio_buffer::{AudioBuffer, Sample};
 use crate::channel_map::Bitset;
-use crate::prelude::ChannelMap32;
-use crate::timestamp::Timestamp;
-use crate::{
-    AudioCallbackContext, AudioDevice, AudioDriver, AudioInput, AudioInputCallback,
-    AudioInputDevice, AudioOutput, AudioOutputCallback, AudioOutputDevice, AudioStreamHandle,
-    Channel, DeviceType, SendEverywhereButOnWeb, StreamConfig,
+use crate::channel_map::ChannelMap32;
+use crate::device::{AudioDevice, AudioInputDevice, AudioOutputDevice, Channel, DeviceType};
+use crate::driver::AudioDriver;
+use crate::stream::{
+    AudioCallbackContext, AudioInput, AudioInputCallback, AudioOutput, AudioOutputCallback,
+    AudioStreamHandle, StreamConfig,
 };
+use crate::timestamp::Timestamp;
+use crate::SendEverywhereButOnWeb;
 
 /// Type of errors from the CoreAudio backend
 #[derive(Debug, Error)]
@@ -184,6 +186,23 @@ fn input_stream_format(sample_rate: f64, channels: ChannelMap32) -> StreamFormat
 impl AudioInputDevice for CoreAudioDevice {
     type StreamHandle<Callback: AudioInputCallback> = CoreAudioStream<Callback>;
 
+    fn input_channel_map(&self) -> impl Iterator<Item = Channel> {
+        let channels = match audio_unit_from_device_id(self.device_id, true) {
+            Err(err) => {
+                eprintln!("CoreAudio error getting audio unit: {err}");
+                0
+            }
+            Ok(audio_unit) => {
+                let stream_format = audio_unit.input_stream_format().unwrap();
+                stream_format.channels as usize
+            }
+        };
+        (0..channels).map(|ch| Channel {
+            index: ch,
+            name: Cow::Owned(format!("Channel {}", ch)),
+        })
+    }
+
     fn default_input_config(&self) -> Result<StreamConfig, Self::Error> {
         let audio_unit = audio_unit_from_device_id(self.device_id, true)?;
         let samplerate = audio_unit.get_property::<f64>(
@@ -218,6 +237,23 @@ fn output_stream_format(sample_rate: f64, channels: ChannelMap32) -> StreamForma
 }
 
 impl AudioOutputDevice for CoreAudioDevice {
+    fn output_channel_map(&self) -> impl Iterator<Item = Channel> {
+        let channels = match audio_unit_from_device_id(self.device_id, false) {
+            Err(err) => {
+                eprintln!("CoreAudio error getting audio unit: {err}");
+                0
+            }
+            Ok(audio_unit) => {
+                let stream_format = audio_unit.output_stream_format().unwrap();
+                stream_format.channels as usize
+            }
+        };
+        (0..channels).map(|ch| Channel {
+            index: ch,
+            name: Cow::Owned(format!("Channel {}", ch)),
+        })
+    }
+
     type StreamHandle<Callback: AudioOutputCallback> = CoreAudioStream<Callback>;
 
     fn default_output_config(&self) -> Result<StreamConfig, Self::Error> {
