@@ -9,6 +9,7 @@ use crate::{
 use libspa::buffer::Data;
 use libspa::param::audio::{AudioFormat, AudioInfoRaw};
 use libspa::pod::Pod;
+use libspa::utils::Direction;
 use libspa_sys::{SPA_PARAM_EnumFormat, SPA_TYPE_OBJECT_Format};
 use pipewire::context::Context;
 use pipewire::keys;
@@ -195,25 +196,49 @@ impl<Callback: 'static + Send> StreamHandle<Callback> {
                         return;
                     }
                     if let Some(mut buffer) = stream.dequeue_buffer() {
-                        let datas = buffer.datas_mut();
-                        log::debug!("Datas: len={}", datas.len());
-                        let Some(min_frames) = datas
-                            .iter_mut()
-                            .filter_map(|d| d.data().map(|d| d.len() / size_of::<f32>()))
-                            .min()
-                        else {
-                            log::warn!("No datas available");
-                            return;
-                        };
-                        let frames = min_frames.min(MAX_FRAMES);
+                        if direction == Direction::Input {
+                            let datas = buffer.datas_mut();
+                            log::debug!("Datas: len={}", datas.len());
 
-                        let frames = process_frames(datas, inner, channels, frames);
+                            let chunk_sizes: Vec<_> = datas
+                                .iter()
+                                .map(|d| d.chunk().size() as usize / size_of::<f32>())
+                                .collect();
 
-                        for data in datas.iter_mut() {
-                            let chunk = data.chunk_mut();
-                            *chunk.offset_mut() = 0;
-                            *chunk.stride_mut() = size_of::<f32>() as _;
-                            *chunk.size_mut() = (size_of::<f32>() * frames) as _;
+                            let Some(min_samples) = chunk_sizes.iter().min() else {
+                                log::warn!("No datas available");
+                                return;
+                            };
+
+                            let min_frames = min_samples / channels;
+                            let frames = min_frames.min(MAX_FRAMES);
+                            process_frames(datas, inner, channels, frames);
+                        }
+
+                        if direction == Direction::Output {
+                            let requested_frames = buffer.requested() as usize;
+                            if requested_frames == 0 {
+                                return;
+                            }
+
+                            let datas = buffer.datas_mut();
+                            log::debug!("Datas: len={}", datas.len());
+                            let Some(_min_frames) = datas
+                                .iter_mut()
+                                .filter_map(|d| d.data().map(|d| d.len() / size_of::<f32>()))
+                                .min()
+                            else {
+                                log::warn!("No datas available");
+                                return;
+                            };
+
+                            let frames = process_frames(datas, inner, channels, requested_frames);
+                            for data in datas.iter_mut() {
+                                let chunk = data.chunk_mut();
+                                *chunk.offset_mut() = 0;
+                                *chunk.stride_mut() = size_of::<f32>() as _;
+                                *chunk.size_mut() = (size_of::<f32>() * frames) as _;
+                            }
                         }
                     } else {
                         log::warn!("No buffer available");
