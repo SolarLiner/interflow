@@ -12,7 +12,7 @@ where
         let device_type = device_type | DeviceType::PHYSICAL;
         eprint!("\t{s}:\t");
         if let Some(device) = driver.default_device(device_type)? {
-            eprintln!("{}", device.name());
+            eprintln!("{}, {}", device.name(), device.description());
         } else {
             eprintln!("None");
         }
@@ -20,7 +20,12 @@ where
 
     eprintln!("All devices");
     for device in driver.list_devices()? {
-        eprintln!("\t{} ({:?})", device.name(), device.device_type());
+        eprintln!(
+            "\t{}, {} ({:?})",
+            device.name(),
+            device.description(),
+            device.device_type()
+        );
     }
     Ok(())
 }

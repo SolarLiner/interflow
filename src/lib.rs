@@ -138,6 +138,11 @@ pub trait AudioDevice {
     /// Device display name
     fn name(&self) -> Cow<str>;
 
+    /// Device description
+    fn description(&self) -> Cow<str> {
+        Cow::Borrowed("")
+    }
+
     /// Device type. Either input, output, or duplex.
     fn device_type(&self) -> DeviceType;
 

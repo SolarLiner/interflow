@@ -24,11 +24,25 @@ impl AudioDevice for PipewireDevice {
         let Some(node_id) = self.target_node else {
             return Cow::Borrowed("Default");
         };
-        match get_node_name(node_id) {
-            Ok(Some(name)) => Cow::Owned(name),
+        match get_node_props(node_id) {
+            Ok(Some(props)) => Cow::Owned(props.name),
             Ok(None) => Cow::Borrowed("Unknown"),
             Err(e) => {
                 log::error!("Failed to get device name: {}", e);
+                Cow::Borrowed("Error")
+            }
+        }
+    }
+
+    fn description(&self) -> Cow<str> {
+        let Some(node_id) = self.target_node else {
+            return Cow::Borrowed("Default");
+        };
+        match get_node_props(node_id) {
+            Ok(Some(props)) => Cow::Owned(props.description),
+            Ok(None) => Cow::Borrowed("Unknown"),
+            Err(e) => {
+                log::error!("Failed to get device description: {}", e);
                 Cow::Borrowed("Error")
             }
         }
@@ -109,7 +123,7 @@ impl PipewireDevice {
     }
 }
 
-fn get_node_name(node_id: u32) -> Result<Option<String>, PipewireError> {
+fn get_node_props(node_id: u32) -> Result<Option<NodeProps>, PipewireError> {
     let mainloop = MainLoop::new(None)?;
     let context = Context::new(&mainloop)?;
     let core = context.connect(None)?;
@@ -145,8 +159,14 @@ fn get_node_name(node_id: u32) -> Result<Option<String>, PipewireError> {
             move |global| {
                 if node_id == global.id {
                     if let Some(props) = global.props {
-                        if let Some(name) = props.get("node.name") {
-                            data.borrow_mut().replace(name.to_string());
+                        let name = props.get("node.name");
+                        let description = props.get("node.description");
+                        if let (Some(name), Some(description)) = (name, description) {
+                            let info = NodeProps {
+                                name: name.to_string(),
+                                description: description.to_string(),
+                            };
+                            data.borrow_mut().replace(info);
                         }
                     }
                 }
@@ -160,4 +180,9 @@ fn get_node_name(node_id: u32) -> Result<Option<String>, PipewireError> {
     drop(_listener_core);
     drop(_listener_reg);
     Ok(Rc::into_inner(data).unwrap().into_inner())
+}
+
+struct NodeProps {
+    name: String,
+    description: String,
 }
