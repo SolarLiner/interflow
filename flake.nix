@@ -11,18 +11,18 @@
         pkgs = import nixpkgs { inherit system; };
         naersk-lib = pkgs.callPackage naersk { stdenv = pkgs.clangStdenv; };
         nativeBuildInputs = with pkgs; [pkg-config];
-        buildInputs = with pkgs; [clangStdenv.cc.libc jack2] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [alsa-lib pipewire];
+        buildInputs = with pkgs; [clangStdenv.cc.libc jack2 cargo-nextest] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [alsa-lib pipewire];
         LIBCLANG_PATH = with pkgs; "${llvmPackages.libclang.lib}/lib";
       in
       {
         packages = rec {
-		  interflow = naersk-lib.buildPackage {
-		    pname = "interflow";
-		    version = "0.1.0";
-		    src = ./.;
-		    inherit nativeBuildInputs buildInputs LIBCLANG_PATH;
-		  };
-		  default = interflow;
+          interflow = naersk-lib.buildPackage {
+            pname = "interflow";
+            version = "0.1.0";
+            src = ./.;
+            inherit nativeBuildInputs buildInputs LIBCLANG_PATH;
+          };
+          default = interflow;
         };
         devShells.default = pkgs.clangStdenv.mkDerivation {
           name = "interflow-devshell";
