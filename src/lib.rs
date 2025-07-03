@@ -3,8 +3,6 @@
 
 use bitflags::bitflags;
 use std::borrow::Cow;
-use std::fmt;
-use std::fmt::Formatter;
 
 use crate::audio_buffer::{AudioMut, AudioRef};
 use crate::channel_map::ChannelMap32;
@@ -16,6 +14,7 @@ pub mod channel_map;
 pub mod duplex;
 pub mod prelude;
 pub mod timestamp;
+pub mod poly;
 
 bitflags! {
     /// Represents the types/capabilities of an audio device.
