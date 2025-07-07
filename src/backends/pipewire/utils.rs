@@ -25,7 +25,12 @@ fn get_device_type(object: &GlobalObject<&DictRef>) -> Option<DeviceType> {
     Some(device_type)
 }
 
-pub fn get_devices() -> Result<Vec<(u32, DeviceType)>, PipewireError> {
+fn get_device_object_serial(object: &GlobalObject<&DictRef>) -> Option<String> {
+    let object_serial = object.props?.get("object.serial")?;
+    Some(object_serial.to_owned())
+}
+
+pub fn get_devices() -> Result<Vec<(u32, DeviceType, String)>, PipewireError> {
     let mainloop = MainLoop::new(None)?;
     let context = Context::new(&mainloop)?;
     let core = context.connect(None)?;
@@ -65,8 +70,13 @@ pub fn get_devices() -> Result<Vec<(u32, DeviceType)>, PipewireError> {
                     global.type_,
                     global.version
                 );
-                if let Some(device_type) = get_device_type(global) {
-                    data.borrow_mut().push((global.id, device_type));
+
+                let device_type = get_device_type(global);
+                let object_serial = get_device_object_serial(global);
+
+                if let (Some(device_type), Some(object_serial)) = (device_type, object_serial) {
+                    data.borrow_mut()
+                        .push((global.id, device_type, object_serial));
                 }
             }
         })

@@ -143,6 +143,7 @@ impl<Callback> AudioStreamHandle<Callback> for StreamHandle<Callback> {
 
 impl<Callback: 'static + Send> StreamHandle<Callback> {
     fn create_stream(
+        device_object_serial: Option<String>,
         name: String,
         mut config: StreamConfig,
         callback: Callback,
@@ -159,16 +160,19 @@ impl<Callback: 'static + Send> StreamHandle<Callback> {
 
             let channels = config.channels.count();
             let channels_str = channels.to_string();
-            let stream = Stream::new(
-                &core,
-                &name,
-                properties! {
-                    *keys::MEDIA_TYPE => "Audio",
-                    *keys::MEDIA_ROLE => "Music",
-                    *keys::MEDIA_CATEGORY => get_category(direction),
-                    *keys::AUDIO_CHANNELS => channels_str,
-                },
-            )?;
+
+            let mut props = properties! {
+                *keys::MEDIA_TYPE => "Audio",
+                *keys::MEDIA_ROLE => "Music",
+                *keys::MEDIA_CATEGORY => get_category(direction),
+                *keys::AUDIO_CHANNELS => channels_str,
+            };
+
+            if let Some(device_object_serial) = device_object_serial {
+                props.insert(*keys::TARGET_OBJECT, device_object_serial);
+            }
+
+            let stream = Stream::new(&core, &name, props)?;
             config.samplerate = config.samplerate.round();
             let _listener = stream
                 .add_local_listener_with_user_data(StreamInner {
@@ -250,11 +254,13 @@ impl<Callback: 'static + Send> StreamHandle<Callback> {
 impl<Callback: 'static + Send + AudioInputCallback> StreamHandle<Callback> {
     /// Create an input Pipewire stream
     pub fn new_input(
+        device_object_serial: Option<String>,
         name: impl ToString,
         config: StreamConfig,
         callback: Callback,
     ) -> Result<Self, PipewireError> {
         Self::create_stream(
+            device_object_serial,
             name.to_string(),
             config,
             callback,
@@ -288,11 +294,13 @@ fn get_category(direction: pipewire::spa::utils::Direction) -> &'static str {
 impl<Callback: 'static + Send + AudioOutputCallback> StreamHandle<Callback> {
     /// Create an output Pipewire stream
     pub fn new_output(
+        device_object_serial: Option<String>,
         name: impl ToString,
         config: StreamConfig,
         callback: Callback,
     ) -> Result<Self, PipewireError> {
         Self::create_stream(
+            device_object_serial,
             name.to_string(),
             config,
             callback,

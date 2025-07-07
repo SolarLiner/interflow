@@ -23,6 +23,7 @@ impl AudioDriver for PipewireDriver {
         Ok(Some(PipewireDevice {
             target_node: None,
             device_type,
+            object_serial: None,
             stream_name: Cow::Borrowed("Interflow stream"),
         }))
     }
@@ -30,9 +31,10 @@ impl AudioDriver for PipewireDriver {
     fn list_devices(&self) -> Result<impl IntoIterator<Item = Self::Device>, Self::Error> {
         Ok(utils::get_devices()?
             .into_iter()
-            .map(|(id, device_type)| PipewireDevice {
+            .map(|(id, device_type, object_serial)| PipewireDevice {
                 target_node: Some(id),
                 device_type,
+                object_serial: Some(object_serial),
                 stream_name: Cow::Borrowed("Interflow stream"),
             }))
     }
