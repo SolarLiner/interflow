@@ -16,7 +16,7 @@ impl AudioDriver for PipewireDriver {
 
     fn version(&self) -> Result<Cow<str>, Self::Error> {
         // TODO: Figure out how to get version
-        Ok(Cow::Borrowed("unkonwn"))
+        Ok(Cow::Borrowed("unknown"))
     }
 
     fn default_device(&self, device_type: DeviceType) -> Result<Option<Self::Device>, Self::Error> {

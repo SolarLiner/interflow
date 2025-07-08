@@ -10,23 +10,25 @@ fn main() -> Result {
     use interflow::backends::pipewire::driver::PipewireDriver;
     env_logger::init();
     let driver = PipewireDriver::new()?;
-    enumerate_props(&driver)?;
+    enumerate_properties(&driver)?;
     enumerate_devices(driver)?;
     Ok(())
 }
 
-fn enumerate_props(driver: &PipewireDriver) -> Result {
-    eprintln!("Props:");
+fn enumerate_properties(driver: &PipewireDriver) -> Result {
+    eprintln!("Properties:");
 
     for device in driver.list_devices()? {
-        let Some(props) = device.props()? else {
+        eprintln!("\t{}", device.name());
+
+        let Some(property) = device.properties()? else {
+            eprintln!("\tNo properties found");
             continue;
         };
 
-        eprintln!("\t{:?}", device.device_type());
-        eprintln!("\t\tdescription: {}", props.description);
-        eprintln!("\t\tname: {}", props.name);
-        eprintln!("\t\tnick: {}", props.nick);
+        for (key, value) in property.dict().iter() {
+            eprintln!("\t\t{key}: {value}")
+        }
     }
 
     Ok(())

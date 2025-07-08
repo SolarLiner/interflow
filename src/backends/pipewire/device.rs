@@ -6,6 +6,7 @@ use crate::{
 };
 use pipewire::context::Context;
 use pipewire::main_loop::MainLoop;
+use pipewire::properties::Properties;
 use std::borrow::Cow;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -18,12 +19,12 @@ pub struct PipewireDevice {
 }
 
 impl PipewireDevice {
-    pub fn props(&self) -> Result<Option<NodeProps>, PipewireError> {
+    pub fn properties(&self) -> Result<Option<Properties>, PipewireError> {
         let Some(node_id) = self.target_node else {
             return Ok(None);
         };
 
-        get_node_props(node_id)
+        get_node_properties(node_id)
     }
 }
 
@@ -34,9 +35,14 @@ impl AudioDevice for PipewireDevice {
         let Some(node_id) = self.target_node else {
             return Cow::Borrowed("Default");
         };
-        match get_node_props(node_id) {
-            Ok(Some(props)) => Cow::Owned(props.name),
-            Ok(None) => Cow::Borrowed("Unknown"),
+        match get_node_properties(node_id) {
+            Ok(properties) => properties
+                .and_then(|properties| {
+                    properties
+                        .get("node.name")
+                        .map(|name| Cow::Owned(name.to_owned()))
+                })
+                .unwrap_or(Cow::Borrowed("Unknown")),
             Err(e) => {
                 log::error!("Failed to get device name: {}", e);
                 Cow::Borrowed("Error")
@@ -119,7 +125,7 @@ impl PipewireDevice {
     }
 }
 
-fn get_node_props(node_id: u32) -> Result<Option<NodeProps>, PipewireError> {
+fn get_node_properties(node_id: u32) -> Result<Option<Properties>, PipewireError> {
     let mainloop = MainLoop::new(None)?;
     let context = Context::new(&mainloop)?;
     let core = context.connect(None)?;
@@ -154,21 +160,9 @@ fn get_node_props(node_id: u32) -> Result<Option<NodeProps>, PipewireError> {
             let data = data.clone();
             move |global| {
                 if node_id == global.id {
-                    if let Some(props) = global.props {
-                        let description = props.get("node.description");
-                        let name = props.get("node.name");
-                        let nick = props.get("node.nick");
-
-                        if let (Some(description), Some(name), Some(nick)) =
-                            (description, name, nick)
-                        {
-                            let props = NodeProps {
-                                description: description.to_string(),
-                                name: name.to_string(),
-                                nick: nick.to_string(),
-                            };
-                            data.borrow_mut().replace(props);
-                        }
+                    if let Some(properties) = global.props {
+                        let properties = Properties::from_dict(properties);
+                        data.borrow_mut().replace(properties);
                     }
                 }
             }
@@ -181,10 +175,4 @@ fn get_node_props(node_id: u32) -> Result<Option<NodeProps>, PipewireError> {
     drop(_listener_core);
     drop(_listener_reg);
     Ok(Rc::into_inner(data).unwrap().into_inner())
-}
-
-pub struct NodeProps {
-    pub description: String,
-    pub name: String,
-    pub nick: String,
 }
