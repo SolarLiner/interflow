@@ -21,12 +21,12 @@ fn enumerate_properties(driver: &PipewireDriver) -> Result {
     for device in driver.list_devices()? {
         eprintln!("\t{}", device.name());
 
-        let Some(property) = device.properties()? else {
+        let Some(properties) = device.properties()? else {
             eprintln!("\tNo properties found");
             continue;
         };
 
-        for (key, value) in property.dict().iter() {
+        for (key, value) in properties.dict().iter() {
             eprintln!("\t\t{key}: {value}")
         }
     }
