@@ -1,6 +1,7 @@
 use super::error::PipewireError;
 use crate::backends::pipewire::device::PipewireDevice;
 use crate::backends::pipewire::utils;
+use crate::backends::pipewire::utils::get_info;
 use crate::{AudioDriver, DeviceType};
 use std::borrow::Cow;
 use std::marker::PhantomData;
@@ -15,8 +16,13 @@ impl AudioDriver for PipewireDriver {
     const DISPLAY_NAME: &'static str = "Pipewire";
 
     fn version(&self) -> Result<Cow<str>, Self::Error> {
-        // TODO: Figure out how to get version
-        Ok(Cow::Borrowed("unkonwn"))
+        let info = get_info()?;
+
+        if let Some(version) = info.get("version") {
+            return Ok(Cow::Owned(version.to_owned()));
+        }
+
+        Ok(Cow::Borrowed("unknown"))
     }
 
     fn default_device(&self, device_type: DeviceType) -> Result<Option<Self::Device>, Self::Error> {
