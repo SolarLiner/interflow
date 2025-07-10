@@ -13,8 +13,64 @@ use coreaudio::audio_unit::macos_helpers::{
 use coreaudio::audio_unit::render_callback::{data, Args};
 use coreaudio::audio_unit::{AudioUnit, Element, SampleFormat, Scope, StreamFormat};
 use coreaudio_sys::{
+    kAudioDevicePropertyBufferFrameSize, kAudioDevicePropertyBufferFrameSizeRange,
+    kAudioObjectPropertyElementMain, kAudioObjectPropertyScopeInput,
+    kAudioObjectPropertyScopeOutput, kAudioUnitProperty_MaximumFramesPerSlice,
     kAudioUnitProperty_SampleRate, kAudioUnitProperty_StreamFormat, AudioDeviceID,
+    AudioObjectGetPropertyData, AudioObjectPropertyAddress, AudioValueRange,
 };
+
+fn get_device_property<T>(
+    device_id: AudioDeviceID,
+    address: AudioObjectPropertyAddress,
+) -> Result<T, coreaudio::Error> {
+    let mut data = std::mem::MaybeUninit::<T>::uninit();
+    let mut size = std::mem::size_of::<T>() as u32;
+    let status = unsafe {
+        AudioObjectGetPropertyData(
+            device_id,
+            &address,
+            0,
+            std::ptr::null(),
+            &mut size,
+            data.as_mut_ptr() as *mut _,
+        )
+    };
+    if status == 0 {
+        Ok(unsafe { data.assume_init() })
+    } else {
+        match coreaudio::Error::from_os_status(status) {
+            Ok(()) => unreachable!(),
+            Err(e) => Err(e),
+        }
+    }
+}
+
+fn set_device_property<T>(
+    device_id: AudioDeviceID,
+    address: AudioObjectPropertyAddress,
+    data: &T,
+) -> Result<(), coreaudio::Error> {
+    let size = std::mem::size_of::<T>() as u32;
+    let status = unsafe {
+        coreaudio_sys::AudioObjectSetPropertyData(
+            device_id,
+            &address,
+            0,
+            std::ptr::null(),
+            size,
+            data as *const T as *const _,
+        )
+    };
+    if status == 0 {
+        Ok(())
+    } else {
+        match coreaudio::Error::from_os_status(status) {
+            Ok(()) => unreachable!(),
+            Err(e) => Err(e),
+        }
+    }
+}
 use thiserror::Error;
 
 use crate::audio_buffer::{AudioBuffer, Sample};
@@ -98,6 +154,46 @@ impl CoreAudioDevice {
             device_type,
         })
     }
+
+    /// Returns the supported I/O buffer size range for the device.
+    pub fn buffer_size_range(&self) -> Result<(Option<usize>, Option<usize>), CoreAudioError> {
+        let property_address = AudioObjectPropertyAddress {
+            mSelector: kAudioDevicePropertyBufferFrameSizeRange,
+            mScope: if self.device_type.is_input() {
+                kAudioObjectPropertyScopeInput
+            } else {
+                kAudioObjectPropertyScopeOutput
+            },
+            mElement: kAudioObjectPropertyElementMain,
+        };
+
+        let range: AudioValueRange = get_device_property(self.device_id, property_address)?;
+
+        Ok((Some(range.mMinimum as usize), Some(range.mMaximum as usize)))
+    }
+
+    /// Sets the device's buffer size if requested in the `StreamConfig`.
+    /// This must be done before creating the AudioUnit.
+    fn set_buffer_size_from_config(
+        &self,
+        stream_config: &StreamConfig,
+    ) -> Result<(), CoreAudioError> {
+        if let (Some(min), Some(max)) = stream_config.buffer_size_range {
+            if min == max {
+                let property_address = AudioObjectPropertyAddress {
+                    mSelector: kAudioDevicePropertyBufferFrameSize,
+                    mScope: if self.device_type.is_input() {
+                        kAudioObjectPropertyScopeInput
+                    } else {
+                        kAudioObjectPropertyScopeOutput
+                    },
+                    mElement: kAudioObjectPropertyElementMain,
+                };
+                set_device_property(self.device_id, property_address, &(min as u32))?;
+            }
+        }
+        Ok(())
+    }
 }
 
 impl AudioDevice for CoreAudioDevice {
@@ -148,7 +244,8 @@ impl AudioDevice for CoreAudioDevice {
         let supported_list = get_supported_physical_stream_formats(self.device_id)
             .inspect_err(|err| eprintln!("Error getting stream formats: {err}"))
             .ok()?;
-        Some(supported_list.into_iter().flat_map(|asbd| {
+        let buffer_size_range = self.buffer_size_range().unwrap_or((None, None));
+        Some(supported_list.into_iter().flat_map(move |asbd| {
             let samplerate_range = asbd.mSampleRateRange.mMinimum..asbd.mSampleRateRange.mMaximum;
             TYPICAL_SAMPLERATES
                 .iter()
@@ -164,7 +261,7 @@ impl AudioDevice for CoreAudioDevice {
                     StreamConfig {
                         samplerate,
                         channels,
-                        buffer_size_range: (None, None),
+                        buffer_size_range,
                         exclusive,
                     }
                 })
@@ -204,6 +301,9 @@ impl AudioInputDevice for CoreAudioDevice {
         stream_config: StreamConfig,
         callback: Callback,
     ) -> Result<Self::StreamHandle<Callback>, Self::Error> {
+        let mut device = *self;
+        device.device_type = DeviceType::INPUT;
+        device.set_buffer_size_from_config(&stream_config)?;
         CoreAudioStream::new_input(self.device_id, stream_config, callback)
     }
 }
@@ -236,6 +336,7 @@ impl AudioOutputDevice for CoreAudioDevice {
         stream_config: StreamConfig,
         callback: Callback,
     ) -> Result<Self::StreamHandle<Callback>, Self::Error> {
+        self.set_buffer_size_from_config(&stream_config)?;
         CoreAudioStream::new_output(self.device_id, stream_config, callback)
     }
 }
@@ -273,10 +374,12 @@ impl<Callback: 'static + Send + AudioInputCallback> CoreAudioStream<Callback> {
             Element::Input,
             Some(&asbd),
         )?;
-        let mut buffer = AudioBuffer::zeroed(
-            stream_config.channels.count(),
-            stream_config.samplerate as _,
-        );
+        let max_frames: u32 = audio_unit.get_property(
+            kAudioUnitProperty_MaximumFramesPerSlice,
+            Scope::Global,
+            Element::Output,
+        )?;
+        let mut buffer = AudioBuffer::zeroed(stream_config.channels.count(), max_frames as usize);
 
         // Set up the callback retrieval process, without needing to make the callback `Sync`
         let (tx, rx) = oneshot::channel::<oneshot::Sender<Callback>>();
@@ -333,10 +436,12 @@ impl<Callback: 'static + Send + AudioOutputCallback> CoreAudioStream<Callback> {
             Element::Output,
             Some(&asbd),
         )?;
-        let mut buffer = AudioBuffer::zeroed(
-            stream_config.channels.count(),
-            stream_config.samplerate as _,
-        );
+        let max_frames: u32 = audio_unit.get_property(
+            kAudioUnitProperty_MaximumFramesPerSlice,
+            Scope::Global,
+            Element::Output,
+        )?;
+        let mut buffer = AudioBuffer::zeroed(stream_config.channels.count(), max_frames as usize);
 
         // Set up the callback retrieval process, without needing to make the callback `Sync`
         let (tx, rx) = oneshot::channel::<oneshot::Sender<Callback>>();
@@ -372,5 +477,35 @@ impl<Callback: 'static + Send + AudioOutputCallback> CoreAudioStream<Callback> {
             audio_unit,
             callback_retrieve: tx,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[ignore] // This is an integration test that requires a default audio device on macOS.
+    fn test_set_device_buffersize() {
+        let driver = CoreAudioDriver;
+        if let Ok(Some(device)) = driver.default_device(DeviceType::OUTPUT) {
+            let buffer_size = 256;
+
+            // Set the buffer size on the device.
+            let property_address = AudioObjectPropertyAddress {
+                mSelector: kAudioDevicePropertyBufferFrameSize,
+                mScope: kAudioObjectPropertyScopeOutput,
+                mElement: kAudioObjectPropertyElementMain,
+            };
+            set_device_property(device.device_id, property_address, &buffer_size).unwrap();
+
+            // Read it back to confirm.
+            let actual_buffer_size: u32 =
+                get_device_property(device.device_id, property_address).unwrap();
+
+            assert_eq!(buffer_size, actual_buffer_size);
+        } else {
+            println!("Skipping test: No default output device found.");
+        }
     }
 }
