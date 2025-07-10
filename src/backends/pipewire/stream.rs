@@ -152,6 +152,7 @@ impl<Callback: 'static + Send> StreamHandle<Callback> {
             + Send
             + 'static,
     ) -> Result<Self, PipewireError> {
+        let target_specific_device = device_object_serial.is_some();
         let (mut tx, rx) = rtrb::RingBuffer::new(16);
         let handle = std::thread::spawn(move || {
             let main_loop = MainLoop::new(None)?;
@@ -232,12 +233,18 @@ impl<Callback: 'static + Send> StreamHandle<Callback> {
             .0
             .into_inner();
             let mut params = [Pod::from_bytes(&values).unwrap()];
-            stream.connect(
-                direction,
-                None,
-                StreamFlags::AUTOCONNECT | StreamFlags::MAP_BUFFERS | StreamFlags::RT_PROCESS,
-                &mut params,
-            )?;
+            let mut flags =
+                StreamFlags::AUTOCONNECT | StreamFlags::MAP_BUFFERS | StreamFlags::RT_PROCESS;
+
+            // If the user targets a specific device do not reconnect to the default device
+            // in case the target device gets destroyed. This way the user can learn about
+            // the condition because their callback will stop being called.
+            // See https://github.com/SolarLiner/interflow/issues/77
+            if target_specific_device {
+                flags |= StreamFlags::DONT_RECONNECT;
+            }
+
+            stream.connect(direction, None, flags, &mut params)?;
             log::debug!("Starting Pipewire main loop");
             main_loop.run();
             Ok::<_, PipewireError>(())
