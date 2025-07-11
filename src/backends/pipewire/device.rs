@@ -77,7 +77,7 @@ impl AudioInputDevice for PipewireDevice {
             samplerate: 48000.0,
             channels: 0b11,
             exclusive: false,
-            buffer_size_range: (None, None),
+            buffer_size_range: self.buffer_size_range()?,
         })
     }
 
@@ -104,7 +104,7 @@ impl AudioOutputDevice for PipewireDevice {
             samplerate: 48000.0,
             channels: 0b11,
             exclusive: false,
-            buffer_size_range: (None, None),
+            buffer_size_range: self.buffer_size_range()?,
         })
     }
 

@@ -38,14 +38,9 @@ impl AudioOutputCallback for MyCallback {
     }
 }
 
+#[cfg(os_coreaudio)]
 fn main() -> Result<()> {
     env_logger::init();
-
-    // We can only use the CoreAudio backend on macOS.
-    if !cfg!(target_os = "macos") {
-        println!("This example only runs on macOS.");
-        return Ok(());
-    }
 
     let driver = CoreAudioDriver;
     let device = driver

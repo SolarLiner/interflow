@@ -155,23 +155,6 @@ impl CoreAudioDevice {
         })
     }
 
-    /// Returns the supported I/O buffer size range for the device.
-    pub fn buffer_size_range(&self) -> Result<(Option<usize>, Option<usize>), CoreAudioError> {
-        let property_address = AudioObjectPropertyAddress {
-            mSelector: kAudioDevicePropertyBufferFrameSizeRange,
-            mScope: if self.device_type.is_input() {
-                kAudioObjectPropertyScopeInput
-            } else {
-                kAudioObjectPropertyScopeOutput
-            },
-            mElement: kAudioObjectPropertyElementMain,
-        };
-
-        let range: AudioValueRange = get_device_property(self.device_id, property_address)?;
-
-        Ok((Some(range.mMinimum as usize), Some(range.mMaximum as usize)))
-    }
-
     /// Sets the device's buffer size if requested in the `StreamConfig`.
     /// This must be done before creating the AudioUnit.
     fn set_buffer_size_from_config(
@@ -239,6 +222,23 @@ impl AudioDevice for CoreAudioDevice {
         true
     }
 
+    /// Returns the supported I/O buffer size range for the device.
+    fn buffer_size_range(&self) -> Result<(Option<usize>, Option<usize>), CoreAudioError> {
+        let property_address = AudioObjectPropertyAddress {
+            mSelector: kAudioDevicePropertyBufferFrameSizeRange,
+            mScope: if self.device_type.is_input() {
+                kAudioObjectPropertyScopeInput
+            } else {
+                kAudioObjectPropertyScopeOutput
+            },
+            mElement: kAudioObjectPropertyElementMain,
+        };
+
+        let range: AudioValueRange = get_device_property(self.device_id, property_address)?;
+
+        Ok((Some(range.mMinimum as usize), Some(range.mMaximum as usize)))
+    }
+
     fn enumerate_configurations(&self) -> Option<impl IntoIterator<Item = StreamConfig>> {
         const TYPICAL_SAMPLERATES: [f64; 5] = [44100., 48000., 96000., 128000., 192000.];
         let supported_list = get_supported_physical_stream_formats(self.device_id)
@@ -291,7 +291,7 @@ impl AudioInputDevice for CoreAudioDevice {
         Ok(StreamConfig {
             channels: 0b11,
             samplerate,
-            buffer_size_range: (None, None),
+            buffer_size_range: self.buffer_size_range()?,
             exclusive: false,
         })
     }
@@ -325,7 +325,7 @@ impl AudioOutputDevice for CoreAudioDevice {
         let samplerate = audio_unit.sample_rate()?;
         Ok(StreamConfig {
             samplerate,
-            buffer_size_range: (None, None),
+            buffer_size_range: self.buffer_size_range()?,
             channels: 0b11,
             exclusive: false,
         })
@@ -485,7 +485,7 @@ mod tests {
     use super::*;
 
     #[test]
-    #[ignore] // This is an integration test that requires a default audio device on macOS.
+    #[ignore = "This is an integration test that requires a default audio device on macOS."]
     fn test_set_device_buffersize() {
         let driver = CoreAudioDriver;
         if let Ok(Some(device)) = driver.default_device(DeviceType::OUTPUT) {
