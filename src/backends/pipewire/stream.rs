@@ -75,10 +75,12 @@ impl<Callback> StreamInner<Callback> {
 }
 
 impl<Callback: AudioOutputCallback> StreamInner<Callback> {
-    fn process_output(&mut self, channels: usize, frames: usize) -> usize {
-        let buffer =
-            AudioMut::from_interleaved_mut(&mut self.scratch_buffer[..channels * frames], channels)
-                .unwrap();
+    fn process_output(&mut self, channels: usize, buffer_size: usize) -> usize {
+        let buffer = AudioMut::from_interleaved_mut(
+            &mut self.scratch_buffer[..channels * buffer_size],
+            channels,
+        )
+        .unwrap();
         if let Some(callback) = self.callback.as_mut() {
             let context = AudioCallbackContext {
                 stream_config: self.config,
@@ -149,7 +151,7 @@ impl<Callback: 'static + Send> StreamHandle<Callback> {
         user_properties: HashMap<Vec<u8>, Vec<u8>>,
         callback: Callback,
         direction: pipewire::spa::utils::Direction,
-        process_frames: impl Fn(&mut [Data], &mut StreamInner<Callback>, usize, usize) -> usize
+        process_frames: impl Fn(&mut [Data], &mut StreamInner<Callback>, usize) -> usize
             + Send
             + 'static,
     ) -> Result<Self, PipewireError> {
@@ -161,6 +163,7 @@ impl<Callback: 'static + Send> StreamHandle<Callback> {
 
             let channels = config.channels.count();
             let channels_str = channels.to_string();
+            let buffer_size = stream_buffer_size(config.buffer_size_range);
 
             let mut properties = Properties::new();
             for (key, value) in user_properties {
@@ -171,6 +174,7 @@ impl<Callback: 'static + Send> StreamHandle<Callback> {
             properties.insert(*keys::MEDIA_ROLE, "Music");
             properties.insert(*keys::MEDIA_CATEGORY, get_category(direction));
             properties.insert(*keys::AUDIO_CHANNELS, channels_str);
+            properties.insert(*keys::NODE_FORCE_QUANTUM, buffer_size.to_string());
 
             if let Some(device_object_serial) = device_object_serial {
                 properties.insert(*keys::TARGET_OBJECT, device_object_serial);
@@ -194,17 +198,6 @@ impl<Callback: 'static + Send> StreamHandle<Callback> {
                         return;
                     }
                     if let Some(mut buffer) = stream.dequeue_buffer() {
-                        let requested_frames = if direction == Direction::Output {
-                            let requested_frames = buffer.requested() as usize;
-                            if requested_frames == 0 {
-                                log::warn!("0 frames were requested");
-                                return;
-                            }
-                            requested_frames
-                        } else {
-                            0
-                        };
-
                         let datas = buffer.datas_mut();
                         log::debug!("Datas: len={}", datas.len());
 
@@ -213,7 +206,7 @@ impl<Callback: 'static + Send> StreamHandle<Callback> {
                             return;
                         };
 
-                        process_frames(datas, inner, channels, requested_frames);
+                        process_frames(datas, inner, channels);
                     } else {
                         log::warn!("No buffer available");
                     }
@@ -271,7 +264,7 @@ impl<Callback: 'static + Send + AudioInputCallback> StreamHandle<Callback> {
             properties,
             callback,
             pipewire::spa::utils::Direction::Input,
-            |datas, inner, channels, _frames| {
+            |datas, inner, channels| {
                 // TODO: also take chunk offset into account to index into the data?
                 let mut frames_total = 0;
 
@@ -321,28 +314,36 @@ impl<Callback: 'static + Send + AudioOutputCallback> StreamHandle<Callback> {
             properties,
             callback,
             pipewire::spa::utils::Direction::Output,
-            |datas, inner, channels, requested_frames| {
-                let provided_frames = inner.process_output(channels, requested_frames);
-                // TODO handle frames_total not being a multiple of datas.len()
-                let frames_per_data = provided_frames / datas.len();
-                let samples = frames_per_data * channels;
+            move |datas, inner, channels| {
+                let buffer_size = stream_buffer_size(config.buffer_size_range);
+                let provided_buffer_size = inner.process_output(channels, buffer_size);
+                // TODO handle provided_buffer_size not being a multiple of datas.len()
+                let buffer_size_per_chunk = provided_buffer_size / datas.len();
+                let samples_per_chunk = buffer_size_per_chunk * channels;
 
                 for (i, data) in datas.iter_mut().enumerate() {
-                    let processed_slice = &inner.scratch_buffer[i * samples..][..samples];
+                    let processed_slice =
+                        &inner.scratch_buffer[i * samples_per_chunk..][..samples_per_chunk];
                     if let Some(bytes) = data.data() {
                         let slice: &mut [f32] = zerocopy::FromBytes::mut_from_bytes(bytes)
                             .inspect_err(|e| log::error!("Cannot cast to f32 slice: {e}"))
                             .unwrap();
-                        slice[..samples].copy_from_slice(processed_slice);
+                        slice[..samples_per_chunk].copy_from_slice(processed_slice);
                         let chunk = data.chunk_mut();
                         *chunk.offset_mut() = 0;
                         *chunk.stride_mut() = size_of::<f32>() as _;
-                        *chunk.size_mut() = (size_of::<f32>() * samples) as _;
+                        *chunk.size_mut() = (size_of::<f32>() * samples_per_chunk) as _;
                     }
                 }
 
-                provided_frames
+                provided_buffer_size
             },
         )
     }
+}
+
+const DEFAULT_EXPECTED_FRAMES: usize = 512;
+
+fn stream_buffer_size(range: (Option<usize>, Option<usize>)) -> usize {
+    range.0.or(range.1).unwrap_or(DEFAULT_EXPECTED_FRAMES)
 }
