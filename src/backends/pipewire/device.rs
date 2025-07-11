@@ -8,13 +8,16 @@ use pipewire::context::Context;
 use pipewire::main_loop::MainLoop;
 use std::borrow::Cow;
 use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
 use std::rc::Rc;
 
 pub struct PipewireDevice {
     pub(super) target_node: Option<u32>,
     pub device_type: DeviceType,
     pub object_serial: Option<String>,
+    // TODO: it would be better to put these fields into a stream builder struct.
     pub stream_name: Cow<'static, str>,
+    pub stream_properties: HashMap<String, String>,
 }
 
 impl AudioDevice for PipewireDevice {
@@ -72,6 +75,7 @@ impl AudioInputDevice for PipewireDevice {
             self.object_serial.clone(),
             &self.stream_name,
             stream_config,
+            self.stream_properties.clone(),
             callback,
         )
     }
@@ -98,14 +102,25 @@ impl AudioOutputDevice for PipewireDevice {
             self.object_serial.clone(),
             &self.stream_name,
             stream_config,
+            self.stream_properties.clone(),
             callback,
         )
     }
 }
 
 impl PipewireDevice {
+    /// Name to be used for the next stream created with [`AudioInputDevice::create_input_stream()`]
+    /// or [`AudioOutputDevice::create_output_stream()`].
     pub fn with_stream_name(&mut self, name: impl Into<Cow<'static, str>>) {
         self.stream_name = name.into();
+    }
+
+    /// Properties for the next stream created with [`AudioInputDevice::create_input_stream()`]
+    /// or [`AudioOutputDevice::create_output_stream()`].
+    /// These correspond to [`pipewire::properties::Properties`] but need to be passed in a
+    /// [`HashMap`] as the pipewire properties are not `Send`.
+    pub fn with_stream_properties(&mut self, properties: HashMap<String, String>) {
+        self.stream_properties = properties
     }
 }
 

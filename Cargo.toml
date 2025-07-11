@@ -70,3 +70,8 @@ path = "examples/enumerate_wasapi.rs"
 name = "enumerate_pipewire"
 path = "examples/enumerate_pipewire.rs"
 required-features = ["pipewire"]
+
+[[example]]
+name = "sine_wave_pipewire"
+path = "examples/sine_wave_pipewire.rs"
+required-features = ["pipewire"]
