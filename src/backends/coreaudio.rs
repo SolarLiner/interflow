@@ -14,7 +14,7 @@ use coreaudio::audio_unit::render_callback::{data, Args};
 use coreaudio::audio_unit::{AudioUnit, Element, SampleFormat, Scope, StreamFormat};
 use coreaudio_sys::{
     kAudioDevicePropertyBufferFrameSize, kAudioDevicePropertyBufferFrameSizeRange,
-    kAudioObjectPropertyElementMain, kAudioObjectPropertyScopeInput,
+    kAudioObjectPropertyElementMaster, kAudioObjectPropertyScopeInput,
     kAudioObjectPropertyScopeOutput, kAudioUnitProperty_MaximumFramesPerSlice,
     kAudioUnitProperty_SampleRate, kAudioUnitProperty_StreamFormat, AudioDeviceID,
     AudioObjectGetPropertyData, AudioObjectPropertyAddress, AudioValueRange,
@@ -36,14 +36,8 @@ fn get_device_property<T>(
             data.as_mut_ptr() as *mut _,
         )
     };
-    if status == 0 {
-        Ok(unsafe { data.assume_init() })
-    } else {
-        match coreaudio::Error::from_os_status(status) {
-            Ok(()) => unreachable!(),
-            Err(e) => Err(e),
-        }
-    }
+    coreaudio::Error::from_os_status(status)?;
+    Ok(unsafe { data.assume_init() })
 }
 
 fn set_device_property<T>(
@@ -62,14 +56,7 @@ fn set_device_property<T>(
             data as *const T as *const _,
         )
     };
-    if status == 0 {
-        Ok(())
-    } else {
-        match coreaudio::Error::from_os_status(status) {
-            Ok(()) => unreachable!(),
-            Err(e) => Err(e),
-        }
-    }
+    coreaudio::Error::from_os_status(status)
 }
 use thiserror::Error;
 
@@ -170,7 +157,7 @@ impl CoreAudioDevice {
                     } else {
                         kAudioObjectPropertyScopeOutput
                     },
-                    mElement: kAudioObjectPropertyElementMain,
+                    mElement: kAudioObjectPropertyElementMaster,
                 };
                 set_device_property(self.device_id, property_address, &(min as u32))?;
             }
@@ -231,7 +218,7 @@ impl AudioDevice for CoreAudioDevice {
             } else {
                 kAudioObjectPropertyScopeOutput
             },
-            mElement: kAudioObjectPropertyElementMain,
+            mElement: kAudioObjectPropertyElementMaster,
         };
 
         let range: AudioValueRange = get_device_property(self.device_id, property_address)?;
@@ -485,7 +472,6 @@ mod tests {
     use super::*;
 
     #[test]
-    #[ignore = "This is an integration test that requires a default audio device on macOS."]
     fn test_set_device_buffersize() {
         let driver = CoreAudioDriver;
         if let Ok(Some(device)) = driver.default_device(DeviceType::OUTPUT) {
@@ -495,7 +481,7 @@ mod tests {
             let property_address = AudioObjectPropertyAddress {
                 mSelector: kAudioDevicePropertyBufferFrameSize,
                 mScope: kAudioObjectPropertyScopeOutput,
-                mElement: kAudioObjectPropertyElementMain,
+                mElement: kAudioObjectPropertyElementMaster,
             };
             set_device_property(device.device_id, property_address, &buffer_size).unwrap();
 
