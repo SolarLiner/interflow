@@ -15,7 +15,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let config = device.default_output_config()?;
     device.with_stream_name("Interflow sine wave");
-    let properties = [("node.custom-property".to_owned(), "interflow".to_owned())].into();
+    let properties = [("node.custom-property".into(), "interflow".into())].into();
     device.with_stream_properties(properties);
     let stream = device.create_output_stream(config, SineWave::new(440.0))?;
 

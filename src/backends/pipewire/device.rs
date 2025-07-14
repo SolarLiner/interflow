@@ -15,9 +15,8 @@ pub struct PipewireDevice {
     pub(super) target_node: Option<u32>,
     pub device_type: DeviceType,
     pub object_serial: Option<String>,
-    // TODO: it would be better to put these fields into a stream builder struct.
     pub stream_name: Cow<'static, str>,
-    pub stream_properties: HashMap<String, String>,
+    pub stream_properties: HashMap<Vec<u8>, Vec<u8>>,
 }
 
 impl AudioDevice for PipewireDevice {
@@ -119,7 +118,7 @@ impl PipewireDevice {
     /// or [`AudioOutputDevice::create_output_stream()`].
     /// These correspond to [`pipewire::properties::Properties`] but need to be passed in a
     /// [`HashMap`] as the pipewire properties are not `Send`.
-    pub fn with_stream_properties(&mut self, properties: HashMap<String, String>) {
+    pub fn with_stream_properties(&mut self, properties: HashMap<Vec<u8>, Vec<u8>>) {
         self.stream_properties = properties
     }
 }

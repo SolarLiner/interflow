@@ -147,7 +147,7 @@ impl<Callback: 'static + Send> StreamHandle<Callback> {
         device_object_serial: Option<String>,
         name: String,
         mut config: StreamConfig,
-        user_properties: HashMap<String, String>,
+        user_properties: HashMap<Vec<u8>, Vec<u8>>,
         callback: Callback,
         direction: pipewire::spa::utils::Direction,
         process_frames: impl Fn(&mut [Data], &mut StreamInner<Callback>, usize, usize) -> usize
@@ -262,7 +262,7 @@ impl<Callback: 'static + Send + AudioInputCallback> StreamHandle<Callback> {
         device_object_serial: Option<String>,
         name: impl ToString,
         config: StreamConfig,
-        properties: HashMap<String, String>,
+        properties: HashMap<Vec<u8>, Vec<u8>>,
         callback: Callback,
     ) -> Result<Self, PipewireError> {
         Self::create_stream(
@@ -304,7 +304,7 @@ impl<Callback: 'static + Send + AudioOutputCallback> StreamHandle<Callback> {
         device_object_serial: Option<String>,
         name: impl ToString,
         config: StreamConfig,
-        properties: HashMap<String, String>,
+        properties: HashMap<Vec<u8>, Vec<u8>>,
         callback: Callback,
     ) -> Result<Self, PipewireError> {
         Self::create_stream(
