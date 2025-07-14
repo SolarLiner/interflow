@@ -1,45 +1,44 @@
 //! This example demonstrates how to request a specific buffer size from the CoreAudio backend.
 //! Probably only works on macOS.
 
-use anyhow::Result;
-use interflow::backends::coreaudio::CoreAudioDriver;
-use interflow::channel_map::{ChannelMap32, CreateBitset};
-use interflow::prelude::*;
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc,
-};
-use util::sine::SineWave;
-
 mod util;
 
-struct MyCallback {
-    first_callback: Arc<AtomicBool>,
-    sine_wave: SineWave,
-}
+#[cfg(os_coreaudio)]
+fn main() -> anyhow::Result<()> {
+    use interflow::backends::coreaudio::CoreAudioDriver;
+    use interflow::channel_map::{ChannelMap32, CreateBitset};
+    use interflow::prelude::*;
+    use std::sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    };
+    use util::sine::SineWave;
 
-impl AudioOutputCallback for MyCallback {
-    fn on_output_data(&mut self, context: AudioCallbackContext, mut output: AudioOutput<f32>) {
-        if self.first_callback.swap(false, Ordering::SeqCst) {
-            println!(
-                "Actual buffer size granted by OS: {}",
-                output.buffer.num_samples()
-            );
-        }
+    struct MyCallback {
+        first_callback: Arc<AtomicBool>,
+        sine_wave: SineWave,
+    }
 
-        for mut frame in output.buffer.as_interleaved_mut().rows_mut() {
-            let sample = self
-                .sine_wave
-                .next_sample(context.stream_config.samplerate as f32);
-            for channel_sample in &mut frame {
-                *channel_sample = sample;
+    impl AudioOutputCallback for MyCallback {
+        fn on_output_data(&mut self, context: AudioCallbackContext, mut output: AudioOutput<f32>) {
+            if self.first_callback.swap(false, Ordering::SeqCst) {
+                println!(
+                    "Actual buffer size granted by OS: {}",
+                    output.buffer.num_samples()
+                );
+            }
+
+            for mut frame in output.buffer.as_interleaved_mut().rows_mut() {
+                let sample = self
+                    .sine_wave
+                    .next_sample(context.stream_config.samplerate as f32);
+                for channel_sample in &mut frame {
+                    *channel_sample = sample;
+                }
             }
         }
     }
-}
 
-#[cfg(os_coreaudio)]
-fn main() -> Result<()> {
     env_logger::init();
 
     let driver = CoreAudioDriver;
@@ -80,4 +79,9 @@ fn main() -> Result<()> {
 
     stream.eject()?;
     Ok(())
+}
+
+#[cfg(not(os_coreaudio))]
+fn main() {
+    println!("This example is only available on platforms that support CoreAudio (e.g. macOS).");
 }
