@@ -6,6 +6,7 @@ use crate::{
 };
 use pipewire::context::Context;
 use pipewire::main_loop::MainLoop;
+use pipewire::properties::Properties;
 use std::borrow::Cow;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -19,6 +20,16 @@ pub struct PipewireDevice {
     pub stream_properties: HashMap<Vec<u8>, Vec<u8>>,
 }
 
+impl PipewireDevice {
+    pub fn properties(&self) -> Result<Option<Properties>, PipewireError> {
+        let Some(node_id) = self.target_node else {
+            return Ok(None);
+        };
+
+        get_node_properties(node_id)
+    }
+}
+
 impl AudioDevice for PipewireDevice {
     type Error = PipewireError;
 
@@ -26,9 +37,14 @@ impl AudioDevice for PipewireDevice {
         let Some(node_id) = self.target_node else {
             return Cow::Borrowed("Default");
         };
-        match get_node_name(node_id) {
-            Ok(Some(name)) => Cow::Owned(name),
-            Ok(None) => Cow::Borrowed("Unknown"),
+        match get_node_properties(node_id) {
+            Ok(properties) => properties
+                .and_then(|properties| {
+                    properties
+                        .get("node.name")
+                        .map(|name| Cow::Owned(name.to_owned()))
+                })
+                .unwrap_or(Cow::Borrowed("Unknown")),
             Err(e) => {
                 log::error!("Failed to get device name: {}", e);
                 Cow::Borrowed("Error")
@@ -123,7 +139,7 @@ impl PipewireDevice {
     }
 }
 
-fn get_node_name(node_id: u32) -> Result<Option<String>, PipewireError> {
+fn get_node_properties(node_id: u32) -> Result<Option<Properties>, PipewireError> {
     let mainloop = MainLoop::new(None)?;
     let context = Context::new(&mainloop)?;
     let core = context.connect(None)?;
@@ -158,10 +174,9 @@ fn get_node_name(node_id: u32) -> Result<Option<String>, PipewireError> {
             let data = data.clone();
             move |global| {
                 if node_id == global.id {
-                    if let Some(props) = global.props {
-                        if let Some(name) = props.get("node.name") {
-                            data.borrow_mut().replace(name.to_string());
-                        }
+                    if let Some(properties) = global.props {
+                        let properties = Properties::from_dict(properties);
+                        data.borrow_mut().replace(properties);
                     }
                 }
             }
