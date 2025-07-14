@@ -9,6 +9,7 @@ use crate::{
 use libspa::buffer::Data;
 use libspa::param::audio::{AudioFormat, AudioInfoRaw};
 use libspa::pod::Pod;
+use libspa::utils::Direction;
 use libspa_sys::{SPA_PARAM_EnumFormat, SPA_TYPE_OBJECT_Format};
 use pipewire::context::Context;
 use pipewire::keys;
@@ -74,9 +75,9 @@ impl<Callback> StreamInner<Callback> {
 }
 
 impl<Callback: AudioOutputCallback> StreamInner<Callback> {
-    fn process_output(&mut self, channels: usize, frames: usize) -> usize {
-        let buffer = AudioMut::from_noninterleaved_mut(
-            &mut self.scratch_buffer[..channels * frames],
+    fn process_output(&mut self, channels: usize, buffer_size: usize) -> usize {
+        let buffer = AudioMut::from_interleaved_mut(
+            &mut self.scratch_buffer[..channels * buffer_size],
             channels,
         )
         .unwrap();
@@ -102,7 +103,7 @@ impl<Callback: AudioOutputCallback> StreamInner<Callback> {
 impl<Callback: AudioInputCallback> StreamInner<Callback> {
     fn process_input(&mut self, channels: usize, frames: usize) -> usize {
         let buffer =
-            AudioRef::from_noninterleaved(&self.scratch_buffer[..channels * frames], channels)
+            AudioRef::from_interleaved(&self.scratch_buffer[..channels * frames], channels)
                 .unwrap();
         if let Some(callback) = self.callback.as_mut() {
             let context = AudioCallbackContext {
@@ -150,7 +151,7 @@ impl<Callback: 'static + Send> StreamHandle<Callback> {
         user_properties: HashMap<Vec<u8>, Vec<u8>>,
         callback: Callback,
         direction: pipewire::spa::utils::Direction,
-        process_frames: impl Fn(&mut [Data], &mut StreamInner<Callback>, usize, usize) -> usize
+        process_frames: impl Fn(&mut [Data], &mut StreamInner<Callback>, usize) -> usize
             + Send
             + 'static,
     ) -> Result<Self, PipewireError> {
@@ -162,6 +163,7 @@ impl<Callback: 'static + Send> StreamHandle<Callback> {
 
             let channels = config.channels.count();
             let channels_str = channels.to_string();
+            let buffer_size = stream_buffer_size(config.buffer_size_range);
 
             let mut properties = Properties::new();
             for (key, value) in user_properties {
@@ -172,6 +174,7 @@ impl<Callback: 'static + Send> StreamHandle<Callback> {
             properties.insert(*keys::MEDIA_ROLE, "Music");
             properties.insert(*keys::MEDIA_CATEGORY, get_category(direction));
             properties.insert(*keys::AUDIO_CHANNELS, channels_str);
+            properties.insert(*keys::NODE_FORCE_QUANTUM, buffer_size.to_string());
 
             if let Some(device_object_serial) = device_object_serial {
                 properties.insert(*keys::TARGET_OBJECT, device_object_serial);
@@ -197,24 +200,13 @@ impl<Callback: 'static + Send> StreamHandle<Callback> {
                     if let Some(mut buffer) = stream.dequeue_buffer() {
                         let datas = buffer.datas_mut();
                         log::debug!("Datas: len={}", datas.len());
-                        let Some(min_frames) = datas
-                            .iter_mut()
-                            .filter_map(|d| d.data().map(|d| d.len() / size_of::<f32>()))
-                            .min()
-                        else {
+
+                        if datas.is_empty() {
                             log::warn!("No datas available");
                             return;
                         };
-                        let frames = min_frames.min(MAX_FRAMES);
 
-                        let frames = process_frames(datas, inner, channels, frames);
-
-                        for data in datas.iter_mut() {
-                            let chunk = data.chunk_mut();
-                            *chunk.offset_mut() = 0;
-                            *chunk.stride_mut() = size_of::<f32>() as _;
-                            *chunk.size_mut() = (size_of::<f32>() * frames) as _;
-                        }
+                        process_frames(datas, inner, channels);
                     } else {
                         log::warn!("No buffer available");
                     }
@@ -227,7 +219,7 @@ impl<Callback: 'static + Send> StreamHandle<Callback> {
                     id: SPA_PARAM_EnumFormat,
                     properties: {
                         let mut info = AudioInfoRaw::new();
-                        info.set_format(AudioFormat::F32P);
+                        info.set_format(AudioFormat::F32LE);
                         info.set_rate(config.samplerate as u32);
                         info.set_channels(channels as u32);
                         info.into()
@@ -272,17 +264,25 @@ impl<Callback: 'static + Send + AudioInputCallback> StreamHandle<Callback> {
             properties,
             callback,
             pipewire::spa::utils::Direction::Input,
-            |datas, inner, channels, frames| {
-                for (i, data) in datas.iter_mut().enumerate() {
-                    if let Some(data) = data.data() {
-                        let slice: &[f32] = zerocopy::FromBytes::ref_from_bytes(data)
+            |datas, inner, channels| {
+                // TODO: also take chunk offset into account to index into the data?
+                let mut frames_total = 0;
+
+                for (chunk, data) in datas.iter_mut().enumerate() {
+                    let samples = data.chunk().size() as usize / size_of::<f32>() as usize;
+                    if let Some(bytes) = data.data() {
+                        let frames = samples / channels;
+                        frames_total += frames;
+
+                        let slice: &[f32] = zerocopy::FromBytes::ref_from_bytes(bytes)
                             .inspect_err(|e| log::error!("Cannot cast to f32 slice: {e}"))
                             .unwrap();
-                        let target = &mut inner.scratch_buffer[i * frames..][..frames];
-                        target.copy_from_slice(&slice[..frames]);
+                        let target = &mut inner.scratch_buffer[chunk * samples..][..samples];
+                        target.copy_from_slice(&slice[..samples]);
                     }
                 }
-                inner.process_input(channels, frames)
+
+                inner.process_input(channels, frames_total)
             },
         )
     }
@@ -314,19 +314,36 @@ impl<Callback: 'static + Send + AudioOutputCallback> StreamHandle<Callback> {
             properties,
             callback,
             pipewire::spa::utils::Direction::Output,
-            |datas, inner, channels, frames| {
-                let frames = inner.process_output(channels, frames);
+            move |datas, inner, channels| {
+                let buffer_size = stream_buffer_size(config.buffer_size_range);
+                let provided_buffer_size = inner.process_output(channels, buffer_size);
+                // TODO handle provided_buffer_size not being a multiple of datas.len()
+                let buffer_size_per_chunk = provided_buffer_size / datas.len();
+                let samples_per_chunk = buffer_size_per_chunk * channels;
+
                 for (i, data) in datas.iter_mut().enumerate() {
-                    let processed_slice = &inner.scratch_buffer[i * frames..][..frames];
-                    if let Some(data) = data.data() {
-                        let slice: &mut [f32] = zerocopy::FromBytes::mut_from_bytes(data)
+                    let processed_slice =
+                        &inner.scratch_buffer[i * samples_per_chunk..][..samples_per_chunk];
+                    if let Some(bytes) = data.data() {
+                        let slice: &mut [f32] = zerocopy::FromBytes::mut_from_bytes(bytes)
                             .inspect_err(|e| log::error!("Cannot cast to f32 slice: {e}"))
                             .unwrap();
-                        slice[..frames].copy_from_slice(processed_slice);
+                        slice[..samples_per_chunk].copy_from_slice(processed_slice);
+                        let chunk = data.chunk_mut();
+                        *chunk.offset_mut() = 0;
+                        *chunk.stride_mut() = size_of::<f32>() as _;
+                        *chunk.size_mut() = (size_of::<f32>() * samples_per_chunk) as _;
                     }
                 }
-                frames
+
+                provided_buffer_size
             },
         )
     }
+}
+
+const DEFAULT_EXPECTED_FRAMES: usize = 512;
+
+fn stream_buffer_size(range: (Option<usize>, Option<usize>)) -> usize {
+    range.0.or(range.1).unwrap_or(DEFAULT_EXPECTED_FRAMES)
 }
