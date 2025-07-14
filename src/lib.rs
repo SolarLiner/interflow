@@ -111,7 +111,7 @@ pub struct StreamConfig {
     /// order does not matter.
     pub channels: ChannelMap32,
     /// Range of preferential buffer sizes, in units of audio samples per channel.
-    /// The library will make a bast-effort attempt at honoring this setting, and in future versions
+    /// The library will make a best-effort attempt at honoring this setting, and in future versions
     /// may provide additional buffering to ensure it, but for now you should not make assumptions
     /// on buffer sizes based on this setting.
     pub buffer_size_range: (Option<usize>, Option<usize>),
