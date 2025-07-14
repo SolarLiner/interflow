@@ -5,6 +5,7 @@ use pipewire::context::Context;
 use pipewire::main_loop::MainLoop;
 use pipewire::registry::GlobalObject;
 use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
 use std::rc::Rc;
 
 fn get_device_type(object: &GlobalObject<&DictRef>) -> Option<DeviceType> {
@@ -87,5 +88,67 @@ pub fn get_devices() -> Result<Vec<(u32, DeviceType, String)>, PipewireError> {
     }
     drop(_listener_core);
     drop(_listener_reg);
+    Ok(Rc::into_inner(data).unwrap().into_inner())
+}
+
+/// Returns a hashmap of core information
+///
+/// See [pw_core_info](https://docs.pipewire.org/structpw__core__info.html)
+pub fn get_info() -> Result<HashMap<String, String>, PipewireError> {
+    let mainloop = MainLoop::new(None)?;
+    let context = Context::new(&mainloop)?;
+    let core = context.connect(None)?;
+
+    // To comply with Rust's safety rules, we wrap this variable in an `Rc` and  a `Cell`.
+    let done = Rc::new(Cell::new(false));
+
+    // Create new reference for each variable so that they can be moved into the closure.
+    let done_clone = done.clone();
+    let loop_clone = mainloop.clone();
+
+    // Trigger the sync event. The server's answer won't be processed until we start the main loop,
+    // so we can safely do this before setting up a callback. This lets us avoid using a Cell.
+    let pending = core.sync(0)?;
+
+    let data = Rc::new(RefCell::new(HashMap::<String, String>::new()));
+    let _listener_core = core
+        .add_listener_local()
+        .info({
+            let data = data.clone();
+            move |info| {
+                log::debug!("core.info(...): {:#?}", info);
+
+                let mut d = data.borrow_mut();
+                if let Some(props) = info.props() {
+                    for (key, element) in props.iter() {
+                        d.insert(key.into(), element.into());
+                    }
+                }
+
+                d.insert("id".to_owned(), info.id().to_string());
+                d.insert("cookie".to_owned(), info.cookie().to_string());
+                d.insert("user-name".to_owned(), info.user_name().to_owned());
+                d.insert("host-name".to_owned(), info.host_name().to_owned());
+                d.insert("version".to_owned(), info.version().to_owned());
+                d.insert("name".to_owned(), info.name().to_owned());
+                d.insert(
+                    "change-mask".to_owned(),
+                    format!("{:?}", info.change_mask()), // Call Debug for `bitflags` type
+                );
+            }
+        })
+        .done(move |id, seq| {
+            log::debug!("[Core/Done] id: {id} seq: {}", seq.seq());
+            if id == pipewire::core::PW_ID_CORE && seq == pending {
+                done_clone.set(true);
+                loop_clone.quit();
+            }
+        })
+        .register();
+
+    while !done.get() {
+        mainloop.run();
+    }
+    drop(_listener_core);
     Ok(Rc::into_inner(data).unwrap().into_inner())
 }
