@@ -3,6 +3,7 @@ use crate::backends::pipewire::device::PipewireDevice;
 use crate::backends::pipewire::utils;
 use crate::{AudioDriver, DeviceType};
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::marker::PhantomData;
 
 pub struct PipewireDriver {
@@ -25,6 +26,7 @@ impl AudioDriver for PipewireDriver {
             device_type,
             object_serial: None,
             stream_name: Cow::Borrowed("Interflow stream"),
+            stream_properties: HashMap::new(),
         }))
     }
 
@@ -36,6 +38,7 @@ impl AudioDriver for PipewireDriver {
                 device_type,
                 object_serial: Some(object_serial),
                 stream_name: Cow::Borrowed("Interflow stream"),
+                stream_properties: HashMap::new(),
             }))
     }
 }

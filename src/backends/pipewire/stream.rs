@@ -13,8 +13,9 @@ use libspa_sys::{SPA_PARAM_EnumFormat, SPA_TYPE_OBJECT_Format};
 use pipewire::context::Context;
 use pipewire::keys;
 use pipewire::main_loop::{MainLoop, WeakMainLoop};
-use pipewire::properties::properties;
+use pipewire::properties::Properties;
 use pipewire::stream::{Stream, StreamFlags};
+use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Formatter;
 use std::thread::JoinHandle;
@@ -146,6 +147,7 @@ impl<Callback: 'static + Send> StreamHandle<Callback> {
         device_object_serial: Option<String>,
         name: String,
         mut config: StreamConfig,
+        user_properties: HashMap<Vec<u8>, Vec<u8>>,
         callback: Callback,
         direction: pipewire::spa::utils::Direction,
         process_frames: impl Fn(&mut [Data], &mut StreamInner<Callback>, usize, usize) -> usize
@@ -161,18 +163,21 @@ impl<Callback: 'static + Send> StreamHandle<Callback> {
             let channels = config.channels.count();
             let channels_str = channels.to_string();
 
-            let mut props = properties! {
-                *keys::MEDIA_TYPE => "Audio",
-                *keys::MEDIA_ROLE => "Music",
-                *keys::MEDIA_CATEGORY => get_category(direction),
-                *keys::AUDIO_CHANNELS => channels_str,
-            };
-
-            if let Some(device_object_serial) = device_object_serial {
-                props.insert(*keys::TARGET_OBJECT, device_object_serial);
+            let mut properties = Properties::new();
+            for (key, value) in user_properties {
+                properties.insert(key, value);
             }
 
-            let stream = Stream::new(&core, &name, props)?;
+            properties.insert(*keys::MEDIA_TYPE, "Audio");
+            properties.insert(*keys::MEDIA_ROLE, "Music");
+            properties.insert(*keys::MEDIA_CATEGORY, get_category(direction));
+            properties.insert(*keys::AUDIO_CHANNELS, channels_str);
+
+            if let Some(device_object_serial) = device_object_serial {
+                properties.insert(*keys::TARGET_OBJECT, device_object_serial);
+            }
+
+            let stream = Stream::new(&core, &name, properties)?;
             config.samplerate = config.samplerate.round();
             let _listener = stream
                 .add_local_listener_with_user_data(StreamInner {
@@ -257,12 +262,14 @@ impl<Callback: 'static + Send + AudioInputCallback> StreamHandle<Callback> {
         device_object_serial: Option<String>,
         name: impl ToString,
         config: StreamConfig,
+        properties: HashMap<Vec<u8>, Vec<u8>>,
         callback: Callback,
     ) -> Result<Self, PipewireError> {
         Self::create_stream(
             device_object_serial,
             name.to_string(),
             config,
+            properties,
             callback,
             pipewire::spa::utils::Direction::Input,
             |datas, inner, channels, frames| {
@@ -297,12 +304,14 @@ impl<Callback: 'static + Send + AudioOutputCallback> StreamHandle<Callback> {
         device_object_serial: Option<String>,
         name: impl ToString,
         config: StreamConfig,
+        properties: HashMap<Vec<u8>, Vec<u8>>,
         callback: Callback,
     ) -> Result<Self, PipewireError> {
         Self::create_stream(
             device_object_serial,
             name.to_string(),
             config,
+            properties,
             callback,
             pipewire::spa::utils::Direction::Output,
             |datas, inner, channels, frames| {
