@@ -153,7 +153,7 @@ impl AlsaDevice {
         Ok(StreamConfig {
             samplerate: samplerate as _,
             channels,
-            buffer_size_range: self.buffer_size_range()?,
+            buffer_size_range: (None, None),
             exclusive: false,
         })
     }
