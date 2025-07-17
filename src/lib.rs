@@ -153,6 +153,11 @@ pub trait AudioDevice {
     /// Enumerate all possible configurations this device supports. If that is not provided by
     /// the device, and not easily generated manually, this will return `None`.
     fn enumerate_configurations(&self) -> Option<impl IntoIterator<Item = StreamConfig>>;
+
+    /// Returns the supported I/O buffer size range for the device.
+    fn buffer_size_range(&self) -> Result<(Option<usize>, Option<usize>), Self::Error> {
+        Ok((None, None))
+    }
 }
 
 /// Marker trait for values which are [Send] everywhere but on the web (as WASM does not yet have
