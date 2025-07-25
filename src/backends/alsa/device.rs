@@ -57,6 +57,15 @@ impl AudioDevice for AlsaDevice {
         log::info!("TODO: enumerate configurations");
         None::<[StreamConfig; 0]>
     }
+
+    fn buffer_size_range(&self) -> Result<(Option<usize>, Option<usize>), Self::Error> {
+        // Query ALSA hardware parameters for the buffer size range.
+        let hwp = pcm::HwParams::any(&self.pcm)?;
+        Ok((
+            Some(hwp.get_buffer_size_min()? as usize),
+            Some(hwp.get_buffer_size_max()? as usize),
+        ))
+    }
 }
 
 impl AudioInputDevice for AlsaDevice {
@@ -153,7 +162,7 @@ impl AlsaDevice {
         Ok(StreamConfig {
             samplerate: samplerate as _,
             channels,
-            buffer_size_range: (None, None),
+            buffer_size_range: self.buffer_size_range()?,
             exclusive: false,
         })
     }

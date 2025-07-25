@@ -67,6 +67,24 @@ impl AudioDevice for PipewireDevice {
     fn enumerate_configurations(&self) -> Option<impl IntoIterator<Item = StreamConfig>> {
         Some([])
     }
+
+    fn buffer_size_range(&self) -> Result<(Option<usize>, Option<usize>), Self::Error> {
+        // The buffer size range is stored in a string property from the ALSA compatibility API.
+        Ok(self
+            .properties()?
+            .map(|props| {
+                props
+                    .get("api.alsa.period-size-range")
+                    .map(|range_str| {
+                        let mut parts = range_str.split_whitespace();
+                        let min = parts.next().and_then(|s| s.parse().ok());
+                        let max = parts.next().and_then(|s| s.parse().ok());
+                        (min, max)
+                    })
+                    .unwrap_or((None, None))
+            })
+            .unwrap_or((None, None)))
+    }
 }
 
 impl AudioInputDevice for PipewireDevice {
@@ -77,7 +95,7 @@ impl AudioInputDevice for PipewireDevice {
             samplerate: 48000.0,
             channels: 0b11,
             exclusive: false,
-            buffer_size_range: (None, None),
+            buffer_size_range: self.buffer_size_range()?,
         })
     }
 
@@ -104,7 +122,7 @@ impl AudioOutputDevice for PipewireDevice {
             samplerate: 48000.0,
             channels: 0b11,
             exclusive: false,
-            buffer_size_range: (None, None),
+            buffer_size_range: self.buffer_size_range()?,
         })
     }
 
