@@ -1,47 +1,86 @@
-//! This example demonstrates how to request a specific buffer size from the CoreAudio backend.
-//! Probably only works on macOS.
+//! This example demonstrates how to request a specific buffer size from the audio backends.
+
+use interflow::channel_map::{ChannelMap32, CreateBitset};
+use interflow::prelude::*;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
+use util::sine::SineWave;
 
 mod util;
 
-#[cfg(os_coreaudio)]
 fn main() -> anyhow::Result<()> {
-    use interflow::backends::coreaudio::CoreAudioDriver;
-    use interflow::channel_map::{ChannelMap32, CreateBitset};
-    use interflow::prelude::*;
-    use std::sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    };
-    use util::sine::SineWave;
-
-    struct MyCallback {
-        first_callback: Arc<AtomicBool>,
-        sine_wave: SineWave,
+    #[cfg(target_os = "macos")]
+    {
+        use interflow::backends::coreaudio::CoreAudioDriver;
+        run(CoreAudioDriver)
     }
+    #[cfg(target_os = "windows")]
+    {
+        use interflow::backends::wasapi::WasapiDriver;
+        run(WasapiDriver::default())
+    }
+    #[cfg(all(target_os = "linux", not(feature = "pipewire")))]
+    {
+        use interflow::backends::alsa::AlsaDriver;
+        run(AlsaDriver::default())
+    }
+    #[cfg(all(target_os = "linux", feature = "pipewire"))]
+    {
+        use interflow::backends::pipewire::PipewireDriver;
+        run(PipewireDriver::new()?)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    {
+        println!("This example is not available on this platform.");
+        Ok(())
+    }
+}
 
-    impl AudioOutputCallback for MyCallback {
-        fn on_output_data(&mut self, context: AudioCallbackContext, mut output: AudioOutput<f32>) {
-            if self.first_callback.swap(false, Ordering::SeqCst) {
-                println!(
-                    "Actual buffer size granted by OS: {}",
-                    output.buffer.num_samples()
-                );
-            }
+struct MyCallback {
+    first_callback: Arc<AtomicBool>,
+    sine_wave: SineWave,
+}
 
-            for mut frame in output.buffer.as_interleaved_mut().rows_mut() {
-                let sample = self
-                    .sine_wave
-                    .next_sample(context.stream_config.samplerate as f32);
-                for channel_sample in &mut frame {
-                    *channel_sample = sample;
-                }
+impl AudioOutputCallback for MyCallback {
+    fn on_output_data(&mut self, context: AudioCallbackContext, mut output: AudioOutput<f32>) {
+        if self.first_callback.swap(false, Ordering::SeqCst) {
+            println!(
+                "Actual buffer size granted by OS: {}",
+                output.buffer.num_samples()
+            );
+        }
+
+        for mut frame in output.buffer.as_interleaved_mut().rows_mut() {
+            let sample = self
+                .sine_wave
+                .next_sample(context.stream_config.samplerate as f32);
+            for channel_sample in &mut frame {
+                *channel_sample = sample;
             }
         }
     }
+}
 
+fn run<D>(driver: D) -> anyhow::Result<()>
+where
+    D: AudioDriver,
+    D::Device: AudioOutputDevice,
+    <D::Device as AudioDevice>::Error: std::error::Error + Send + Sync + 'static,
+    <D::Device as AudioOutputDevice>::StreamHandle<MyCallback>: AudioStreamHandle<MyCallback>,
+    <<D::Device as AudioOutputDevice>::StreamHandle<MyCallback> as AudioStreamHandle<MyCallback>>::Error:
+        std::error::Error + Send + Sync + 'static,
+{
     env_logger::init();
 
-    let driver = CoreAudioDriver;
+    let full_backend_name = std::any::type_name::<D>();
+    let backend_name = full_backend_name
+        .split("::")
+        .last()
+        .unwrap_or(full_backend_name);
+    println!("Using backend: {}", backend_name);
+
     let device = driver
         .default_device(DeviceType::OUTPUT)
         .expect("Failed to query for default output device")
@@ -79,9 +118,4 @@ fn main() -> anyhow::Result<()> {
 
     stream.eject()?;
     Ok(())
-}
-
-#[cfg(not(os_coreaudio))]
-fn main() {
-    println!("This example is only available on platforms that support CoreAudio (e.g. macOS).");
 }
