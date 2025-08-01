@@ -7,8 +7,10 @@ use crate::{
     Channel, DeviceType, StreamConfig,
 };
 use std::borrow::Cow;
+use std::ptr;
 use windows::core::Interface;
 use windows::Win32::Media::Audio;
+use windows::Win32::System::Com::CoTaskMemFree;
 
 /// Type of devices available from the WASAPI driver.
 #[derive(Debug, Clone)]
@@ -58,8 +60,44 @@ impl AudioDevice for WasapiDevice {
 
     fn buffer_size_range(&self) -> Result<(Option<usize>, Option<usize>), Self::Error> {
         let audio_client = self.device.activate::<Audio::IAudioClient>()?;
-        let format = unsafe { audio_client.GetMixFormat()?.read_unaligned() };
-        let samplerate = format.nSamplesPerSec;
+
+        // A local RAII wrapper to ensure CoTaskMemFree is always called.
+        struct ComWaveFormat(*mut Audio::WAVEFORMATEX);
+        impl Drop for ComWaveFormat {
+            fn drop(&mut self) {
+                if !self.0.is_null() {
+                    unsafe { CoTaskMemFree(Some(self.0 as *const _)) };
+                }
+            }
+        }
+
+        let format_to_use = (|| unsafe {
+            // Get the mix format, now managed by our RAII wrapper.
+            let format_ptr = ComWaveFormat(audio_client.GetMixFormat()?);
+
+            let mut closest_match_ptr: *mut Audio::WAVEFORMATEX = ptr::null_mut();
+            let res = audio_client.IsFormatSupported(
+                Audio::AUDCLNT_SHAREMODE_SHARED,
+                &*format_ptr.0,
+                Some(&mut closest_match_ptr),
+            );
+
+            if res.is_ok() {
+                // The original format is supported.
+                return Ok(format_ptr.0.read_unaligned());
+            }
+
+            // Wrap the returned suggestion in our RAII struct as well.
+            let closest_match = ComWaveFormat(closest_match_ptr);
+            if !closest_match.0.is_null() {
+                return Ok(closest_match.0.read_unaligned());
+            }
+
+            res?;
+            unreachable!();
+        })()?;
+
+        let samplerate = format_to_use.nSamplesPerSec;
 
         // Attempt IAudioClient3/IAudioClient2 to get the buffer size range.
         if let Ok(client) = audio_client.cast::<Audio::IAudioClient3>() {
@@ -69,7 +107,7 @@ impl AudioDevice for WasapiDevice {
             let event_driven = true;
             unsafe {
                 client.GetBufferSizeLimits(
-                    &format,
+                    &format_to_use,
                     event_driven.into(),
                     &mut min_buffer_duration,
                     &mut max_buffer_duration,
@@ -88,7 +126,7 @@ impl AudioDevice for WasapiDevice {
             let event_driven = true;
             unsafe {
                 client.GetBufferSizeLimits(
-                    &format,
+                    &format_to_use,
                     event_driven.into(),
                     &mut min_buffer_duration,
                     &mut max_buffer_duration,
