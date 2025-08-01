@@ -71,30 +71,32 @@ impl AudioDevice for WasapiDevice {
             }
         }
 
-        let format_to_use = (|| unsafe {
-            // Get the mix format, now managed by our RAII wrapper.
-            let format_ptr = ComWaveFormat(audio_client.GetMixFormat()?);
+        let format_to_use = (|| -> Result<Audio::WAVEFORMATEX, error::WasapiError> {
+            unsafe {
+                // Get the mix format, now managed by our RAII wrapper.
+                let format_ptr = ComWaveFormat(audio_client.GetMixFormat()?);
 
-            let mut closest_match_ptr: *mut Audio::WAVEFORMATEX = ptr::null_mut();
-            let res = audio_client.IsFormatSupported(
-                Audio::AUDCLNT_SHAREMODE_SHARED,
-                &*format_ptr.0,
-                Some(&mut closest_match_ptr),
-            );
+                let mut closest_match_ptr: *mut Audio::WAVEFORMATEX = ptr::null_mut();
+                let res = audio_client.IsFormatSupported(
+                    Audio::AUDCLNT_SHAREMODE_SHARED,
+                    &*format_ptr.0,
+                    Some(&mut closest_match_ptr),
+                );
 
-            if res.is_ok() {
-                // The original format is supported.
-                return Ok(format_ptr.0.read_unaligned());
+                if res.is_ok() {
+                    // The original format is supported.
+                    return Ok(format_ptr.0.read_unaligned());
+                }
+
+                // Wrap the returned suggestion in our RAII struct as well.
+                let closest_match = ComWaveFormat(closest_match_ptr);
+                if !closest_match.0.is_null() {
+                    return Ok(closest_match.0.read_unaligned());
+                }
+
+                res.ok()?;
+                unreachable!();
             }
-
-            // Wrap the returned suggestion in our RAII struct as well.
-            let closest_match = ComWaveFormat(closest_match_ptr);
-            if !closest_match.0.is_null() {
-                return Ok(closest_match.0.read_unaligned());
-            }
-
-            res.ok()?;
-            unreachable!();
         })()?;
 
         let samplerate = format_to_use.nSamplesPerSec;
