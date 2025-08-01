@@ -93,7 +93,7 @@ impl AudioDevice for WasapiDevice {
                 return Ok(closest_match.0.read_unaligned());
             }
 
-            res?;
+            res.ok()?;
             unreachable!();
         })()?;
 
