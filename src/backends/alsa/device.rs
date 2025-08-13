@@ -128,8 +128,10 @@ impl AlsaDevice {
 
         // Prefer the min buffer size, otherwise fall back to the max.
         if let Some(buffer_size) = config.buffer_size_range.0.or(config.buffer_size_range.1) {
-            let buffer_size = hwp.set_buffer_size_near(buffer_size as _)?;
-            hwp.set_period_size_near(buffer_size / 2, alsa::ValueOr::Nearest)?;
+            // Set the period size first, to half the desired buffer size.
+            hwp.set_period_size_near((buffer_size / 2) as i64, alsa::ValueOr::Nearest)?;
+            // Then, set the buffer size.
+            hwp.set_buffer_size_near(buffer_size as i64)?;
         }
 
         hwp.set_format(pcm::Format::float())?;
