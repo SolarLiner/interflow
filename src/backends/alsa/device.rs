@@ -126,11 +126,10 @@ impl AlsaDevice {
         hwp.set_channels(config.channels as _)?;
         hwp.set_rate(config.samplerate as _, alsa::ValueOr::Nearest)?;
 
-        // Prefer the min buffer size, otherwise fall back to the max.
+        // The user-requested "buffer_size" is the total hardware buffer size.
+        // We will configure two periods, so the period size will be half of that.
         if let Some(buffer_size) = config.buffer_size_range.0.or(config.buffer_size_range.1) {
-            // Set the period size first, to half the desired buffer size.
             hwp.set_period_size_near((buffer_size / 2) as i64, alsa::ValueOr::Nearest)?;
-            // Then, set the buffer size.
             hwp.set_buffer_size_near(buffer_size as i64)?;
         }
 
@@ -151,7 +150,8 @@ impl AlsaDevice {
 
         log::debug!("Apply config: hwp {hwp:#?}");
 
-        swp.set_start_threshold(hwp.get_buffer_size()?)?;
+        let (_, period_size) = hwp.get_period_size()?;
+        swp.set_start_threshold(period_size)?;
         self.pcm.sw_params(&swp)?;
         log::debug!("Apply config: swp {swp:#?}");
 
