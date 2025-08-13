@@ -73,15 +73,13 @@ impl AudioDevice for PipewireDevice {
         Ok(self
             .properties()?
             .map(|props| {
-                props
-                    .get("api.alsa.period-size-range")
-                    .map(|range_str| {
-                        let mut parts = range_str.split_whitespace();
-                        let min = parts.next().and_then(|s| s.parse().ok());
-                        let max = parts.next().and_then(|s| s.parse().ok());
-                        (min, max)
-                    })
-                    .unwrap_or((None, None))
+                let min = props
+                    .get("default.clock.min-quantum")
+                    .and_then(|s| s.parse().ok());
+                let max = props
+                    .get("default.clock.max-quantum")
+                    .and_then(|s| s.parse().ok());
+                (min, max)
             })
             .unwrap_or((None, None)))
     }
