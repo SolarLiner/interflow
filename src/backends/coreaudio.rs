@@ -278,7 +278,7 @@ impl AudioInputDevice for CoreAudioDevice {
         Ok(StreamConfig {
             channels: 0b11,
             samplerate,
-            buffer_size_range: self.buffer_size_range()?,
+            buffer_size_range: (None, None),
             exclusive: false,
         })
     }

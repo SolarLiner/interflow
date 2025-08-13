@@ -483,7 +483,7 @@ pub(crate) fn is_output_config_supported(
     device: WasapiMMDevice,
     stream_config: &StreamConfig,
 ) -> bool {
-    let try_ = || unsafe {
+    let mut try_ = || unsafe {
         let audio_client: Audio::IAudioClient = device.activate()?;
         let sharemode = if stream_config.exclusive {
             Audio::AUDCLNT_SHAREMODE_EXCLUSIVE

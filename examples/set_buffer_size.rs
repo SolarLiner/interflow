@@ -46,8 +46,11 @@ struct MyCallback {
 impl AudioOutputCallback for MyCallback {
     fn on_output_data(&mut self, context: AudioCallbackContext, mut output: AudioOutput<f32>) {
         if self.first_callback.swap(false, Ordering::SeqCst) {
+            let (min_buf, max_buf) = context.stream_config.buffer_size_range;
+            let buffer_size = min_buf.unwrap_or(0);
+            println!("Actual buffer size granted by OS: {}", buffer_size);
             println!(
-                "Actual buffer size granted by OS: {}",
+                "Period size (frames per callback): {}",
                 output.buffer.num_samples()
             );
         }
@@ -81,10 +84,20 @@ where
         .unwrap_or(full_backend_name);
     println!("Using backend: {}", backend_name);
 
-    let device = driver
+    let mut device = driver
         .default_device(DeviceType::OUTPUT)
-        .expect("Failed to query for default output device")
-        .expect("No default output device found on this system");
+        .expect("Failed to query for default output device");
+
+    if device.is_none() {
+        println!("No default output device found, falling back to first available device.");
+        device = driver
+            .list_devices()
+            .expect("Failed to query for devices")
+            .into_iter()
+            .find(|d| d.device_type().contains(DeviceType::OUTPUT));
+    }
+
+    let device = device.expect("No output devices found on this system");
 
     println!("Using device: {}", device.name());
 
@@ -103,7 +116,7 @@ where
         samplerate: 48000.0,
         channels: ChannelMap32::from_indices([0, 1]),
         buffer_size_range: (Some(requested_buffer_size), Some(requested_buffer_size)),
-        exclusive: false,
+        exclusive: true,
     };
 
     let callback = MyCallback {
