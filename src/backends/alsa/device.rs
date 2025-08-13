@@ -150,7 +150,7 @@ impl AlsaDevice {
 
         log::debug!("Apply config: hwp {hwp:#?}");
 
-        let (_, period_size) = hwp.get_period_size()?;
+        let (period_size, _) = hwp.get_period_size()?;
         swp.set_start_threshold(period_size)?;
         self.pcm.sw_params(&swp)?;
         log::debug!("Apply config: swp {swp:#?}");
