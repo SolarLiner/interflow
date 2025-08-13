@@ -125,12 +125,12 @@ impl AlsaDevice {
         let hwp = pcm::HwParams::any(&self.pcm)?;
         hwp.set_channels(config.channels as _)?;
         hwp.set_rate(config.samplerate as _, alsa::ValueOr::Nearest)?;
-        if let Some(min) = config.buffer_size_range.0 {
-            hwp.set_buffer_size_min(min as _)?;
+
+        // Prefer the min buffer size, otherwise fall back to the max.
+        if let Some(buffer_size) = config.buffer_size_range.0.or(config.buffer_size_range.1) {
+            hwp.set_buffer_size_near(buffer_size as _)?;
         }
-        if let Some(max) = config.buffer_size_range.1 {
-            hwp.set_buffer_size_max(max as _)?;
-        }
+
         hwp.set_format(pcm::Format::float())?;
         hwp.set_access(pcm::Access::RWInterleaved)?;
         Ok(hwp)
