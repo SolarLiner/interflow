@@ -125,6 +125,12 @@ impl AlsaDevice {
         let hwp = pcm::HwParams::any(&self.pcm)?;
         hwp.set_channels(config.channels as _)?;
         hwp.set_rate(config.samplerate as _, alsa::ValueOr::Nearest)?;
+
+        if let Some(buffer_size) = config.buffer_size_range.0.or(config.buffer_size_range.1) {
+            let buffer_size = hwp.set_buffer_size_near(buffer_size as i64)?;
+            hwp.set_period_size_near(buffer_size / 2, alsa::ValueOr::Nearest)?;
+        }
+
         hwp.set_format(pcm::Format::float())?;
         hwp.set_access(pcm::Access::RWInterleaved)?;
         Ok(hwp)
@@ -135,13 +141,6 @@ impl AlsaDevice {
         config: &StreamConfig,
     ) -> Result<(pcm::HwParams, pcm::SwParams, pcm::IO<f32>), alsa::Error> {
         let hwp = self.get_hwp(config)?;
-
-        // Configure buffer and period sizes if requested.
-        if let Some(buffer_size) = config.buffer_size_range.0.or(config.buffer_size_range.1) {
-            hwp.set_buffer_size_near(buffer_size as i64)?;
-            hwp.set_period_size_near((buffer_size / 2) as i64, alsa::ValueOr::Nearest)?;
-        }
-
         self.pcm.hw_params(&hwp)?;
         let io = self.pcm.io_f32()?;
         let hwp = self.pcm.hw_params_current()?;
@@ -150,8 +149,8 @@ impl AlsaDevice {
         log::debug!("Apply config: hwp {hwp:#?}");
 
         let (_, period_size) = self.pcm.get_params()?;
-        swp.set_avail_min(period_size)?;
-        swp.set_start_threshold(period_size)?;
+        swp.set_avail_min(period_size as i64)?;
+        swp.set_start_threshold(period_size as i64)?;
         self.pcm.sw_params(&swp)?;
         log::debug!("Apply config: swp {swp:#?}");
 
