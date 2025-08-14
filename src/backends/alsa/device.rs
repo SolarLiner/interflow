@@ -57,6 +57,15 @@ impl AudioDevice for AlsaDevice {
         log::info!("TODO: enumerate configurations");
         None::<[StreamConfig; 0]>
     }
+
+    fn buffer_size_range(&self) -> Result<(Option<usize>, Option<usize>), Self::Error> {
+        // Query ALSA hardware parameters for the buffer size range.
+        let hwp = pcm::HwParams::any(&self.pcm)?;
+        Ok((
+            Some(hwp.get_buffer_size_min()? as usize),
+            Some(hwp.get_buffer_size_max()? as usize),
+        ))
+    }
 }
 
 impl AudioInputDevice for AlsaDevice {
@@ -116,12 +125,6 @@ impl AlsaDevice {
         let hwp = pcm::HwParams::any(&self.pcm)?;
         hwp.set_channels(config.channels as _)?;
         hwp.set_rate(config.samplerate as _, alsa::ValueOr::Nearest)?;
-        if let Some(min) = config.buffer_size_range.0 {
-            hwp.set_buffer_size_min(min as _)?;
-        }
-        if let Some(max) = config.buffer_size_range.1 {
-            hwp.set_buffer_size_max(max as _)?;
-        }
         hwp.set_format(pcm::Format::float())?;
         hwp.set_access(pcm::Access::RWInterleaved)?;
         Ok(hwp)
@@ -132,6 +135,13 @@ impl AlsaDevice {
         config: &StreamConfig,
     ) -> Result<(pcm::HwParams, pcm::SwParams, pcm::IO<f32>), alsa::Error> {
         let hwp = self.get_hwp(config)?;
+
+        // Configure buffer and period sizes if requested.
+        if let Some(buffer_size) = config.buffer_size_range.0.or(config.buffer_size_range.1) {
+            hwp.set_buffer_size_near(buffer_size as i64)?;
+            hwp.set_period_size_near((buffer_size / 2) as i64, alsa::ValueOr::Nearest)?;
+        }
+
         self.pcm.hw_params(&hwp)?;
         let io = self.pcm.io_f32()?;
         let hwp = self.pcm.hw_params_current()?;
@@ -139,7 +149,9 @@ impl AlsaDevice {
 
         log::debug!("Apply config: hwp {hwp:#?}");
 
-        swp.set_start_threshold(hwp.get_buffer_size()?)?;
+        let (_, period_size) = self.pcm.get_params()?;
+        swp.set_avail_min(period_size)?;
+        swp.set_start_threshold(period_size)?;
         self.pcm.sw_params(&swp)?;
         log::debug!("Apply config: swp {swp:#?}");
 
@@ -153,7 +165,7 @@ impl AlsaDevice {
         Ok(StreamConfig {
             samplerate: samplerate as _,
             channels,
-            buffer_size_range: (None, None),
+            buffer_size_range: self.buffer_size_range()?,
             exclusive: false,
         })
     }
