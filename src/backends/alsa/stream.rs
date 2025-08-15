@@ -1,8 +1,8 @@
 use crate::backends::alsa::device::AlsaDevice;
 use crate::backends::alsa::{triggerfd, AlsaError};
 use crate::channel_map::{Bitset, ChannelMap32};
+use crate::stream::{AudioStreamHandle, StreamConfig};
 use crate::timestamp::Timestamp;
-use crate::{AudioStreamHandle, StreamConfig};
 use alsa::pcm;
 use alsa::PollDescriptors;
 use std::sync::Arc;
@@ -69,8 +69,7 @@ impl<Callback: 'static + Send> AlsaStream<Callback> {
                 log::info!("Sample rate : {samplerate}");
                 let stream_config = StreamConfig {
                     samplerate,
-                    channels: ChannelMap32::default()
-                        .with_indices(std::iter::repeat(1).take(num_channels)),
+                    channels: ChannelMap32::default().with_indices(0..num_channels),
                     buffer_size_range: (Some(period_size), Some(period_size)),
                     exclusive: false,
                 };
