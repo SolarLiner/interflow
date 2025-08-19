@@ -394,6 +394,11 @@ impl<Callback: AudioInputCallback> AudioThread<Callback, Audio::IAudioCaptureCli
 impl<Callback: AudioOutputCallback> AudioThread<Callback, Audio::IAudioRenderClient> {
     fn run(mut self) -> Result<Callback, error::WasapiError> {
         set_thread_priority();
+
+        // Prime the buffer with initial data before starting the stream.
+        // This is necessary to prevent a deadlock in event-driven mode.
+        self.process()?;
+
         unsafe {
             self.audio_client.Start()?;
         }
