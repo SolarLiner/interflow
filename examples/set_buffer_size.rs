@@ -88,10 +88,20 @@ where
         .unwrap_or(full_backend_name);
     println!("Using backend: {}", backend_name);
 
-    let device = driver
+    let mut device = driver
         .default_device(DeviceType::OUTPUT)
-        .expect("Failed to query for default output device")
-        .expect("No default output device found on this system");
+        .expect("Failed to query for default output device");
+
+    if device.is_none() {
+        println!("No default output device found, falling back to first available device.");
+        device = driver
+            .list_devices()
+            .expect("Failed to query for devices")
+            .into_iter()
+            .find(|d| d.device_type().contains(DeviceType::OUTPUT));
+    }
+
+    let device = device.expect("No output devices found on this system");
 
     println!("Using device: {}", device.name());
 

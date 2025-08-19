@@ -160,7 +160,7 @@ impl AudioInputDevice for WasapiDevice {
             channels: 0u32.with_indices(0..format.nChannels as _),
             exclusive: false,
             samplerate: format.nSamplesPerSec as _,
-            buffer_size_range: self.buffer_size_range()?,
+            buffer_size_range: (None, None),
         })
     }
 
@@ -187,7 +187,7 @@ impl AudioOutputDevice for WasapiDevice {
             channels: 0u32.with_indices(0..format.nChannels as _),
             exclusive: false,
             samplerate: format.nSamplesPerSec as _,
-            buffer_size_range: self.buffer_size_range()?,
+            buffer_size_range: (None, None),
         })
     }
 
