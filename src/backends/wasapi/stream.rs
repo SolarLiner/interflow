@@ -268,7 +268,7 @@ impl<Callback, Iface: Interface> AudioThread<Callback, Iface> {
 
                 if sharemode == Audio::AUDCLNT_SHAREMODE_EXCLUSIVE {
                     let mut min_period = 0;
-                    audio_client.GetDevicePeriod(ptr::null_mut(), &mut min_period)?;
+                    audio_client.GetDevicePeriod(None, Some(&mut min_period))?;
                     let period = if duration == 0 { min_period } else { duration };
                     (period, period)
                 } else {
