@@ -159,19 +159,29 @@ impl<Callback, Iface: Interface> AudioThread<Callback, Iface> {
                 Audio::AUDCLNT_SHAREMODE_SHARED
             };
             let format = {
-                let mut format = config_to_waveformatextensible(&stream_config);
+                let mut format = unsafe {
+                    let format_ptr = audio_client.GetMixFormat()?;
+                    let format = format_ptr.read_unaligned();
+                    CoTaskMemFree(Some(format_ptr as _));
+                    config_to_waveformatextensible(&StreamConfig {
+                        samplerate: format.nSamplesPerSec as _,
+                        channels: 0u32.with_indices(0..format.nChannels as _),
+                        ..stream_config
+                    })
+                };
                 let mut actual_format = ptr::null_mut();
                 audio_client
                     .IsFormatSupported(
                         sharemode,
                         &format.Format,
-                        (!stream_config.exclusive).then_some(&mut actual_format),
+                        (sharemode == Audio::AUDCLNT_SHAREMODE_SHARED)
+                            .then_some(&mut actual_format),
                     )
                     .ok()?;
-                if !stream_config.exclusive {
+                if sharemode == Audio::AUDCLNT_SHAREMODE_SHARED {
                     assert!(!actual_format.is_null());
-                    format.Format = actual_format.read_unaligned();
-                    CoTaskMemFree(actual_format.cast());
+                    format.Format = unsafe { actual_format.read_unaligned() };
+                    unsafe { CoTaskMemFree(Some(actual_format as _)) };
                     let sample_rate = format.Format.nSamplesPerSec;
                     stream_config.channels = 0u32.with_indices(0..format.Format.nChannels as _);
                     stream_config.samplerate = sample_rate as _;
