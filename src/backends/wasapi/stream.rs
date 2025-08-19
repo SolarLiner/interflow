@@ -24,7 +24,7 @@ use windows::Win32::Media::{Audio, KernelStreaming, Multimedia};
 use windows::Win32::System::Com::{CoTaskMemFree, STGM_READ};
 use windows::Win32::System::Threading;
 use windows::Win32::System::Variant::VT_BLOB;
-use windows::Win32::UI::Shell::PropertiesSystem::{IPropertyStore, PROPERTYKEY};
+use windows::Win32::UI::Shell::PropertiesSystem::IPropertyStore;
 
 type EjectSignal = Arc<AtomicBool>;
 
