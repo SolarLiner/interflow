@@ -145,7 +145,8 @@ impl<Callback, Interface> AudioThread<Callback, Interface> {
     }
 }
 
-use windows::Win32::System::Com::{STGM_READ, VT_BLOB};
+use windows::Win32::System::Com::StructuredStorage::STGM_READ;
+use windows::Win32::System::Variant::VT_BLOB;
 use windows::Win32::UI::Shell::PropertiesSystem::{IPropertyStore, PROPERTYKEY};
 
 const PKEY_AudioEngine_DeviceFormat: PROPERTYKEY = PROPERTYKEY {
@@ -170,14 +171,14 @@ impl<Callback, Iface: Interface> AudioThread<Callback, Iface> {
 
             let format = if stream_config.exclusive {
                 let properties: IPropertyStore = device.0.OpenPropertyStore(STGM_READ)?;
-                let pv = properties.GetValue(&PKEY_AudioEngine_DeviceFormat)?;
+                let pv = unsafe { properties.GetValue(&PKEY_AudioEngine_DeviceFormat)? };
                 if pv.vt != VT_BLOB {
                     return Err(error::WasapiError::other(
                         "Invalid device format property type",
                     ));
                 }
                 let blob = unsafe { pv.Anonymous.Anonymous.blob };
-                if blob.cbSize < std::mem::size_of::<Audio::WAVEFORMATEX>() as u32 {
+                if blob.cbSize < mem::size_of::<Audio::WAVEFORMATEX>() as u32 {
                     return Err(error::WasapiError::other(
                         "Invalid device format property size",
                     ));
@@ -185,33 +186,33 @@ impl<Callback, Iface: Interface> AudioThread<Callback, Iface> {
                 let format_ptr = blob.pBlobData as *const Audio::WAVEFORMATEX;
                 let format_ex = unsafe { *format_ptr };
 
-                let mut format =
-                    if format_ex.wFormatTag as u32 == Multimedia::WAVE_FORMAT_EXTENSIBLE {
-                        if blob.cbSize < std::mem::size_of::<Audio::WAVEFORMATEXTENSIBLE>() as u32 {
-                            return Err(error::WasapiError::other(
-                                "Invalid device format property size for extensible format",
-                            ));
-                        }
-                        unsafe { *(format_ptr as *const Audio::WAVEFORMATEXTENSIBLE) }
-                    } else {
-                        // Convert to extensible
-                        Audio::WAVEFORMATEXTENSIBLE {
-                            Format: format_ex,
-                            Samples: Audio::WAVEFORMATEXTENSIBLE_0 {
-                                wValidBitsPerSample: format_ex.wBitsPerSample,
-                            },
-                            dwChannelMask: 0, // will be overwritten later
-                            SubFormat: if format_ex.wFormatTag == Multimedia::WAVE_FORMAT_PCM {
-                                Multimedia::KSDATAFORMAT_SUBTYPE_PCM
-                            } else if format_ex.wFormatTag
-                                == Multimedia::WAVE_FORMAT_IEEE_FLOAT
-                            {
-                                Multimedia::KSDATAFORMAT_SUBTYPE_IEEE_FLOAT
-                            } else {
-                                windows::core::GUID::zeroed()
-                            },
-                        }
-                    };
+                let mut format = if format_ex.wFormatTag as u32
+                    == Multimedia::WAVE_FORMAT_EXTENSIBLE
+                {
+                    if blob.cbSize < mem::size_of::<Audio::WAVEFORMATEXTENSIBLE>() as u32 {
+                        return Err(error::WasapiError::other(
+                            "Invalid device format property size for extensible format",
+                        ));
+                    }
+                    unsafe { *(format_ptr as *const Audio::WAVEFORMATEXTENSIBLE) }
+                } else {
+                    // Convert to extensible
+                    Audio::WAVEFORMATEXTENSIBLE {
+                        Format: format_ex,
+                        Samples: Audio::WAVEFORMATEXTENSIBLE_0 {
+                            wValidBitsPerSample: format_ex.wBitsPerSample,
+                        },
+                        dwChannelMask: 0, // will be overwritten later
+                        SubFormat: if format_ex.wFormatTag == Multimedia::WAVE_FORMAT_PCM as u16 {
+                            Multimedia::KSDATAFORMAT_SUBTYPE_PCM
+                        } else if format_ex.wFormatTag == Multimedia::WAVE_FORMAT_IEEE_FLOAT as u16
+                        {
+                            Multimedia::KSDATAFORMAT_SUBTYPE_IEEE_FLOAT
+                        } else {
+                            windows::core::GUID::zeroed()
+                        },
+                    }
+                };
 
                 // Now modify it
                 format.Format.nSamplesPerSec = stream_config.samplerate as u32;
@@ -227,9 +228,9 @@ impl<Callback, Iface: Interface> AudioThread<Callback, Iface> {
                 format
             } else {
                 let mut format = {
-                    let format_ptr = audio_client.GetMixFormat()?;
+                    let format_ptr = unsafe { audio_client.GetMixFormat()? };
                     let format = unsafe { format_ptr.read_unaligned() };
-                    CoTaskMemFree(format_ptr as *mut _ as *mut std::ffi::c_void);
+                    unsafe { CoTaskMemFree(format_ptr as *mut _ as *mut std::ffi::c_void) };
                     config_to_waveformatextensible(&StreamConfig {
                         samplerate: format.nSamplesPerSec as _,
                         channels: 0u32.with_indices(0..format.nChannels as _),
@@ -237,18 +238,20 @@ impl<Callback, Iface: Interface> AudioThread<Callback, Iface> {
                     })
                 };
                 let mut actual_format = ptr::null_mut();
-                audio_client
-                    .IsFormatSupported(
-                        sharemode,
-                        &format.Format,
-                        (sharemode == Audio::AUDCLNT_SHAREMODE_SHARED)
-                            .then_some(&mut actual_format),
-                    )
-                    .ok()?;
+                unsafe {
+                    audio_client
+                        .IsFormatSupported(
+                            sharemode,
+                            &format.Format,
+                            (sharemode == Audio::AUDCLNT_SHAREMODE_SHARED)
+                                .then_some(&mut actual_format),
+                        )
+                        .ok()?
+                };
                 if sharemode == Audio::AUDCLNT_SHAREMODE_SHARED {
                     assert!(!actual_format.is_null());
                     format.Format = unsafe { actual_format.read_unaligned() };
-                    CoTaskMemFree(actual_format as *mut _ as *mut std::ffi::c_void);
+                    unsafe { CoTaskMemFree(actual_format as *mut _ as *mut std::ffi::c_void) };
                     let sample_rate = format.Format.nSamplesPerSec;
                     stream_config.channels = 0u32.with_indices(0..format.Format.nChannels as _);
                     stream_config.samplerate = sample_rate as _;

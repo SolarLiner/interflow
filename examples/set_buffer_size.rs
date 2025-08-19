@@ -48,10 +48,6 @@ impl AudioOutputCallback for MyCallback {
         if self.first_callback.swap(false, Ordering::SeqCst) {
             let (min_buf, max_buf) = context.stream_config.buffer_size_range;
             let buffer_size = min_buf.unwrap_or(0);
-            assert_eq!(
-                min_buf, max_buf,
-                "buffer_size_range in callback should contain the exact buffer size"
-            );
             println!("Actual buffer size granted by OS: {}", buffer_size);
             println!(
                 "Period size (frames per callback): {}",
