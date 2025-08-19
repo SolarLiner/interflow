@@ -16,12 +16,14 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
 use std::{ops, ptr, slice};
-use windows::core::imp::CoTaskMemFree;
 use windows::core::Interface;
 use windows::Win32::Foundation;
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::Media::{Audio, KernelStreaming, Multimedia};
+use windows::Win32::System::Com::{CoTaskMemFree, STGM_READ};
 use windows::Win32::System::Threading;
+use windows::Win32::System::Variant::VT_BLOB;
+use windows::Win32::UI::Shell::PropertiesSystem::{IPropertyStore, PROPERTYKEY};
 
 type EjectSignal = Arc<AtomicBool>;
 
@@ -145,10 +147,6 @@ impl<Callback, Interface> AudioThread<Callback, Interface> {
     }
 }
 
-use windows::Win32::System::Com::StructuredStorage::STGM_READ;
-use windows::Win32::System::Variant::VT_BLOB;
-use windows::Win32::UI::Shell::PropertiesSystem::{IPropertyStore, PROPERTYKEY};
-
 const PKEY_AudioEngine_DeviceFormat: PROPERTYKEY = PROPERTYKEY {
     fmtid: windows::core::GUID::from_u128(0xf19f064d_082c_4e27_bc73_6882a1bb8e4c),
     pid: 14,
@@ -173,25 +171,25 @@ impl<Callback, Iface: Interface> AudioThread<Callback, Iface> {
                 let properties: IPropertyStore = device.0.OpenPropertyStore(STGM_READ)?;
                 let pv = unsafe { properties.GetValue(&PKEY_AudioEngine_DeviceFormat)? };
                 if pv.vt != VT_BLOB {
-                    return Err(error::WasapiError::other(
-                        "Invalid device format property type",
+                    return Err(error::WasapiError::Other(
+                        "Invalid device format property type".to_string(),
                     ));
                 }
                 let blob = unsafe { pv.Anonymous.Anonymous.blob };
                 if blob.cbSize < mem::size_of::<Audio::WAVEFORMATEX>() as u32 {
-                    return Err(error::WasapiError::other(
-                        "Invalid device format property size",
+                    return Err(error::WasapiError::Other(
+                        "Invalid device format property size".to_string(),
                     ));
                 }
                 let format_ptr = blob.pBlobData as *const Audio::WAVEFORMATEX;
                 let format_ex = unsafe { *format_ptr };
 
                 let mut format = if format_ex.wFormatTag as u32
-                    == Multimedia::WAVE_FORMAT_EXTENSIBLE
+                    == KernelStreaming::WAVE_FORMAT_EXTENSIBLE
                 {
                     if blob.cbSize < mem::size_of::<Audio::WAVEFORMATEXTENSIBLE>() as u32 {
-                        return Err(error::WasapiError::other(
-                            "Invalid device format property size for extensible format",
+                        return Err(error::WasapiError::Other(
+                            "Invalid device format property size for extensible format".to_string(),
                         ));
                     }
                     unsafe { *(format_ptr as *const Audio::WAVEFORMATEXTENSIBLE) }
@@ -203,10 +201,9 @@ impl<Callback, Iface: Interface> AudioThread<Callback, Iface> {
                             wValidBitsPerSample: format_ex.wBitsPerSample,
                         },
                         dwChannelMask: 0, // will be overwritten later
-                        SubFormat: if format_ex.wFormatTag == Multimedia::WAVE_FORMAT_PCM as u16 {
-                            Multimedia::KSDATAFORMAT_SUBTYPE_PCM
-                        } else if format_ex.wFormatTag == Multimedia::WAVE_FORMAT_IEEE_FLOAT as u16
-                        {
+                        SubFormat: if format_ex.wFormatTag == Audio::WAVE_FORMAT_PCM as u16 {
+                            KernelStreaming::KSDATAFORMAT_SUBTYPE_PCM
+                        } else if format_ex.wFormatTag == Audio::WAVE_FORMAT_IEEE_FLOAT as u16 {
                             Multimedia::KSDATAFORMAT_SUBTYPE_IEEE_FLOAT
                         } else {
                             windows::core::GUID::zeroed()

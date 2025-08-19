@@ -13,4 +13,7 @@ pub enum WasapiError {
     /// Windows Foundation error
     #[error("Win32 error: {0}")]
     FoundationError(String),
+    /// Other error
+    #[error("Other error: {0}")]
+    Other(String),
 }
