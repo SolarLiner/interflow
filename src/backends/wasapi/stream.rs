@@ -17,14 +17,14 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 use std::{ops, ptr, slice};
 use windows::core::Interface;
-use windows::Win32::Devices::Properties::PROPERTYKEY;
 use windows::Win32::Foundation;
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
+use windows::Win32::Media::Audio::PKEY_AudioEngine_DeviceFormat;
 use windows::Win32::Media::{Audio, KernelStreaming, Multimedia};
 use windows::Win32::System::Com::{CoTaskMemFree, STGM_READ};
 use windows::Win32::System::Threading;
 use windows::Win32::System::Variant::VT_BLOB;
-use windows::Win32::UI::Shell::PropertiesSystem::IPropertyStore;
+use windows::Win32::UI::Shell::PropertiesSystem::{IPropertyStore, PROPERTYKEY};
 
 type EjectSignal = Arc<AtomicBool>;
 
@@ -147,11 +147,6 @@ impl<Callback, Interface> AudioThread<Callback, Interface> {
         Ok(self.callback)
     }
 }
-
-const PKEY_AudioEngine_DeviceFormat: PROPERTYKEY = PROPERTYKEY {
-    fmtid: windows::core::GUID::from_u128(0xf19f064d_082c_4e27_bc73_6882a1bb8e4c),
-    pid: 14,
-};
 
 impl<Callback, Iface: Interface> AudioThread<Callback, Iface> {
     fn new(
