@@ -349,6 +349,7 @@ impl<Callback, Iface: Interface> AudioThread<Callback, Iface> {
 
 impl<Callback: AudioInputCallback> AudioThread<Callback, Audio::IAudioCaptureClient> {
     fn run(mut self) -> Result<Callback, error::WasapiError> {
+        crate::backends::wasapi::util::com_initializer();
         set_thread_priority();
         unsafe {
             self.audio_client.Start()?;
@@ -392,6 +393,7 @@ impl<Callback: AudioInputCallback> AudioThread<Callback, Audio::IAudioCaptureCli
 
 impl<Callback: AudioOutputCallback> AudioThread<Callback, Audio::IAudioRenderClient> {
     fn run(mut self) -> Result<Callback, error::WasapiError> {
+        crate::backends::wasapi::util::com_initializer();
         set_thread_priority();
         unsafe {
             self.audio_client.Start()?;
