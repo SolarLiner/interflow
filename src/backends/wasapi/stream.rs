@@ -163,6 +163,7 @@ impl<Callback, Iface: Interface> AudioThread<Callback, Iface> {
         mut stream_config: StreamConfig,
         callback: Callback,
     ) -> Result<Self, error::WasapiError> {
+        crate::backends::wasapi::util::com_initializer();
         unsafe {
             let audio_client: Audio::IAudioClient = device.activate()?;
             let mut sharemode = if stream_config.exclusive {
@@ -349,7 +350,6 @@ impl<Callback, Iface: Interface> AudioThread<Callback, Iface> {
 
 impl<Callback: AudioInputCallback> AudioThread<Callback, Audio::IAudioCaptureClient> {
     fn run(mut self) -> Result<Callback, error::WasapiError> {
-        crate::backends::wasapi::util::com_initializer();
         set_thread_priority();
         unsafe {
             self.audio_client.Start()?;
@@ -393,7 +393,6 @@ impl<Callback: AudioInputCallback> AudioThread<Callback, Audio::IAudioCaptureCli
 
 impl<Callback: AudioOutputCallback> AudioThread<Callback, Audio::IAudioRenderClient> {
     fn run(mut self) -> Result<Callback, error::WasapiError> {
-        crate::backends::wasapi::util::com_initializer();
         set_thread_priority();
         unsafe {
             self.audio_client.Start()?;
