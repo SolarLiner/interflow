@@ -162,7 +162,7 @@ impl<Callback, Iface: Interface> AudioThread<Callback, Iface> {
                 let mut format = unsafe {
                     let format_ptr = audio_client.GetMixFormat()?;
                     let format = format_ptr.read_unaligned();
-                    CoTaskMemFree(Some(format_ptr as _));
+                    CoTaskMemFree(Some(format_ptr as *const _ as *const std::ffi::c_void));
                     config_to_waveformatextensible(&StreamConfig {
                         samplerate: format.nSamplesPerSec as _,
                         channels: 0u32.with_indices(0..format.nChannels as _),
@@ -181,7 +181,9 @@ impl<Callback, Iface: Interface> AudioThread<Callback, Iface> {
                 if sharemode == Audio::AUDCLNT_SHAREMODE_SHARED {
                     assert!(!actual_format.is_null());
                     format.Format = unsafe { actual_format.read_unaligned() };
-                    unsafe { CoTaskMemFree(Some(actual_format as _)) };
+                    unsafe {
+                        CoTaskMemFree(Some(actual_format as *const _ as *const std::ffi::c_void))
+                    };
                     let sample_rate = format.Format.nSamplesPerSec;
                     stream_config.channels = 0u32.with_indices(0..format.Format.nChannels as _);
                     stream_config.samplerate = sample_rate as _;
