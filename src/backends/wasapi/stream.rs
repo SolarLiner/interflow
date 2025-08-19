@@ -9,6 +9,7 @@ use crate::{
 };
 use duplicate::duplicate_item;
 use std::marker::PhantomData;
+use std::mem;
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -170,28 +171,64 @@ impl<Callback, Iface: Interface> AudioThread<Callback, Iface> {
             let format = if stream_config.exclusive {
                 let properties: IPropertyStore = device.0.OpenPropertyStore(STGM_READ)?;
                 let pv = properties.GetValue(&PKEY_AudioEngine_DeviceFormat)?;
-                let blob = pv.Anonymous.Anonymous.blob;
-                if pv.vt != VT_BLOB
-                    || blob.cbSize < std::mem::size_of::<Audio::WAVEFORMATEX>() as u32
-                {
-                    return Err(error::WasapiError::other("Invalid device format property"));
+                if pv.vt != VT_BLOB {
+                    return Err(error::WasapiError::other(
+                        "Invalid device format property type",
+                    ));
+                }
+                let blob = unsafe { pv.Anonymous.Anonymous.blob };
+                if blob.cbSize < std::mem::size_of::<Audio::WAVEFORMATEX>() as u32 {
+                    return Err(error::WasapiError::other(
+                        "Invalid device format property size",
+                    ));
                 }
                 let format_ptr = blob.pBlobData as *const Audio::WAVEFORMATEX;
-                let mut format = *(format_ptr as *const Audio::WAVEFORMATEXTENSIBLE);
+                let format_ex = unsafe { *format_ptr };
+
+                let mut format =
+                    if format_ex.wFormatTag as u32 == Multimedia::WAVE_FORMAT_EXTENSIBLE {
+                        if blob.cbSize < std::mem::size_of::<Audio::WAVEFORMATEXTENSIBLE>() as u32 {
+                            return Err(error::WasapiError::other(
+                                "Invalid device format property size for extensible format",
+                            ));
+                        }
+                        unsafe { *(format_ptr as *const Audio::WAVEFORMATEXTENSIBLE) }
+                    } else {
+                        // Convert to extensible
+                        Audio::WAVEFORMATEXTENSIBLE {
+                            Format: format_ex,
+                            Samples: Audio::WAVEFORMATEXTENSIBLE_0 {
+                                wValidBitsPerSample: format_ex.wBitsPerSample,
+                            },
+                            dwChannelMask: 0, // will be overwritten later
+                            SubFormat: if format_ex.wFormatTag == Multimedia::WAVE_FORMAT_PCM {
+                                Multimedia::KSDATAFORMAT_SUBTYPE_PCM
+                            } else if format_ex.wFormatTag
+                                == Multimedia::WAVE_FORMAT_IEEE_FLOAT
+                            {
+                                Multimedia::KSDATAFORMAT_SUBTYPE_IEEE_FLOAT
+                            } else {
+                                windows::core::GUID::zeroed()
+                            },
+                        }
+                    };
+
+                // Now modify it
                 format.Format.nSamplesPerSec = stream_config.samplerate as u32;
                 format.Format.nChannels = stream_config.channels.count() as u16;
-                format.Format.wBitsPerSample = 32;
+                format.Format.wBitsPerSample = 32; // For f32
                 format.Format.nBlockAlign =
                     format.Format.nChannels * (format.Format.wBitsPerSample / 8);
                 format.Format.nAvgBytesPerSec =
                     format.Format.nSamplesPerSec * format.Format.nBlockAlign as u32;
                 format.Samples.wValidBitsPerSample = 32;
                 format.SubFormat = Multimedia::KSDATAFORMAT_SUBTYPE_IEEE_FLOAT;
+                format.dwChannelMask = KernelStreaming::KSAUDIO_SPEAKER_DIRECTOUT;
                 format
             } else {
                 let mut format = {
                     let format_ptr = audio_client.GetMixFormat()?;
-                    let format = format_ptr.read_unaligned();
+                    let format = unsafe { format_ptr.read_unaligned() };
                     CoTaskMemFree(format_ptr as *mut _ as *mut std::ffi::c_void);
                     config_to_waveformatextensible(&StreamConfig {
                         samplerate: format.nSamplesPerSec as _,
@@ -210,7 +247,7 @@ impl<Callback, Iface: Interface> AudioThread<Callback, Iface> {
                     .ok()?;
                 if sharemode == Audio::AUDCLNT_SHAREMODE_SHARED {
                     assert!(!actual_format.is_null());
-                    format.Format = actual_format.read_unaligned();
+                    format.Format = unsafe { actual_format.read_unaligned() };
                     CoTaskMemFree(actual_format as *mut _ as *mut std::ffi::c_void);
                     let sample_rate = format.Format.nSamplesPerSec;
                     stream_config.channels = 0u32.with_indices(0..format.Format.nChannels as _);
@@ -473,7 +510,7 @@ fn set_thread_priority() {
 }
 
 pub fn buffer_size_to_duration(buffer_size: usize, sample_rate: u32) -> i64 {
-    (buffer_size as i64 / sample_rate as i64) * (1_000_000_000 / 100)
+    ((10_000_000.0 / sample_rate as f64) * buffer_size as f64) as i64
 }
 
 fn stream_instant(audio_clock: &Audio::IAudioClock) -> Result<Duration, error::WasapiError> {
@@ -490,16 +527,16 @@ fn stream_instant(audio_clock: &Audio::IAudioClock) -> Result<Duration, error::W
 
 pub(crate) fn config_to_waveformatextensible(config: &StreamConfig) -> Audio::WAVEFORMATEXTENSIBLE {
     let format_tag = KernelStreaming::WAVE_FORMAT_EXTENSIBLE;
-    let channels = config.channels as u16;
+    let channels = config.channels.count() as u16;
     let sample_rate = config.samplerate as u32;
-    let sample_bytes = size_of::<f32>() as u16;
+    let sample_bytes = mem::size_of::<f32>() as u16;
     let avg_bytes_per_sec = u32::from(channels) * sample_rate * u32::from(sample_bytes);
     let block_align = channels * sample_bytes;
     let bits_per_sample = 8 * sample_bytes;
 
     let cb_size = {
-        let extensible_size = size_of::<Audio::WAVEFORMATEXTENSIBLE>();
-        let ex_size = size_of::<Audio::WAVEFORMATEX>();
+        let extensible_size = mem::size_of::<Audio::WAVEFORMATEXTENSIBLE>();
+        let ex_size = mem::size_of::<Audio::WAVEFORMATEX>();
         (extensible_size - ex_size) as u16
     };
 
@@ -520,7 +557,7 @@ pub(crate) fn config_to_waveformatextensible(config: &StreamConfig) -> Audio::WA
     let waveformatextensible = Audio::WAVEFORMATEXTENSIBLE {
         Format: waveformatex,
         Samples: Audio::WAVEFORMATEXTENSIBLE_0 {
-            wSamplesPerBlock: bits_per_sample,
+            wValidBitsPerSample: bits_per_sample,
         },
         dwChannelMask: channel_mask,
         SubFormat: sub_format,
