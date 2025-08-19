@@ -59,7 +59,6 @@ impl AudioDevice for WasapiDevice {
     }
 
     fn buffer_size_range(&self) -> Result<(Option<usize>, Option<usize>), Self::Error> {
-        crate::backends::wasapi::util::com_initializer();
         let audio_client = self.device.activate::<Audio::IAudioClient>()?;
 
         // A local RAII wrapper to ensure CoTaskMemFree is always called.
@@ -155,7 +154,6 @@ impl AudioInputDevice for WasapiDevice {
     type StreamHandle<Callback: AudioInputCallback> = WasapiStream<Callback>;
 
     fn default_input_config(&self) -> Result<StreamConfig, Self::Error> {
-        crate::backends::wasapi::util::com_initializer();
         let audio_client = self.device.activate::<Audio::IAudioClient>()?;
         let format = unsafe { audio_client.GetMixFormat()?.read_unaligned() };
         Ok(StreamConfig {
@@ -183,7 +181,6 @@ impl AudioOutputDevice for WasapiDevice {
     type StreamHandle<Callback: AudioOutputCallback> = WasapiStream<Callback>;
 
     fn default_output_config(&self) -> Result<StreamConfig, Self::Error> {
-        crate::backends::wasapi::util::com_initializer();
         let audio_client = self.device.activate::<Audio::IAudioClient>()?;
         let format = unsafe { audio_client.GetMixFormat()?.read_unaligned() };
         Ok(StreamConfig {
