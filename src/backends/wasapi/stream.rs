@@ -17,13 +17,14 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 use std::{ops, ptr, slice};
 use windows::core::Interface;
+use windows::Win32::Devices::Properties::PROPERTYKEY;
 use windows::Win32::Foundation;
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::Media::{Audio, KernelStreaming, Multimedia};
 use windows::Win32::System::Com::{CoTaskMemFree, STGM_READ};
 use windows::Win32::System::Threading;
 use windows::Win32::System::Variant::VT_BLOB;
-use windows::Win32::UI::Shell::PropertiesSystem::{IPropertyStore, PROPERTYKEY};
+use windows::Win32::UI::Shell::PropertiesSystem::IPropertyStore;
 
 type EjectSignal = Arc<AtomicBool>;
 
@@ -170,12 +171,12 @@ impl<Callback, Iface: Interface> AudioThread<Callback, Iface> {
             let format = if stream_config.exclusive {
                 let properties: IPropertyStore = device.0.OpenPropertyStore(STGM_READ)?;
                 let pv = unsafe { properties.GetValue(&PKEY_AudioEngine_DeviceFormat)? };
-                if pv.vt != VT_BLOB {
+                if pv.vt() != VT_BLOB {
                     return Err(error::WasapiError::Other(
                         "Invalid device format property type".to_string(),
                     ));
                 }
-                let blob = unsafe { pv.Anonymous.Anonymous.blob };
+                let blob = unsafe { pv.Anonymous.Anonymous.Anonymous.blob };
                 if blob.cbSize < mem::size_of::<Audio::WAVEFORMATEX>() as u32 {
                     return Err(error::WasapiError::Other(
                         "Invalid device format property size".to_string(),
@@ -203,7 +204,8 @@ impl<Callback, Iface: Interface> AudioThread<Callback, Iface> {
                         dwChannelMask: 0, // will be overwritten later
                         SubFormat: if format_ex.wFormatTag == Audio::WAVE_FORMAT_PCM as u16 {
                             KernelStreaming::KSDATAFORMAT_SUBTYPE_PCM
-                        } else if format_ex.wFormatTag == Audio::WAVE_FORMAT_IEEE_FLOAT as u16 {
+                        } else if format_ex.wFormatTag == Multimedia::WAVE_FORMAT_IEEE_FLOAT as u16
+                        {
                             Multimedia::KSDATAFORMAT_SUBTYPE_IEEE_FLOAT
                         } else {
                             windows::core::GUID::zeroed()
@@ -227,7 +229,7 @@ impl<Callback, Iface: Interface> AudioThread<Callback, Iface> {
                 let mut format = {
                     let format_ptr = unsafe { audio_client.GetMixFormat()? };
                     let format = unsafe { format_ptr.read_unaligned() };
-                    unsafe { CoTaskMemFree(format_ptr as *mut _ as *mut std::ffi::c_void) };
+                    unsafe { CoTaskMemFree(Some(format_ptr as *mut _ as *mut std::ffi::c_void)) };
                     config_to_waveformatextensible(&StreamConfig {
                         samplerate: format.nSamplesPerSec as _,
                         channels: 0u32.with_indices(0..format.nChannels as _),
@@ -248,7 +250,9 @@ impl<Callback, Iface: Interface> AudioThread<Callback, Iface> {
                 if sharemode == Audio::AUDCLNT_SHAREMODE_SHARED {
                     assert!(!actual_format.is_null());
                     format.Format = unsafe { actual_format.read_unaligned() };
-                    unsafe { CoTaskMemFree(actual_format as *mut _ as *mut std::ffi::c_void) };
+                    unsafe {
+                        CoTaskMemFree(Some(actual_format as *mut _ as *mut std::ffi::c_void))
+                    };
                     let sample_rate = format.Format.nSamplesPerSec;
                     stream_config.channels = 0u32.with_indices(0..format.Format.nChannels as _);
                     stream_config.samplerate = sample_rate as _;
@@ -589,7 +593,7 @@ pub(crate) fn is_output_config_supported(
         if !stream_config.exclusive {
             assert!(!actual_format.is_null());
             format.Format = actual_format.read_unaligned();
-            CoTaskMemFree(actual_format.cast());
+            CoTaskMemFree(Some(actual_format.cast()));
             let sample_rate = format.Format.nSamplesPerSec;
             let new_channels = 0u32.with_indices(0..format.Format.nChannels as _);
             let new_samplerate = sample_rate as f64;
