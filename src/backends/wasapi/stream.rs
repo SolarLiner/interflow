@@ -202,7 +202,8 @@ impl<Callback, Iface: Interface> AudioThread<Callback, Iface> {
                 stream_config.channels = 0u32.with_indices(0..format.Format.nChannels as _);
 
                 // Also check if the format is float, which our pipeline expects.
-                if format.SubFormat != Multimedia::KSDATAFORMAT_SUBTYPE_IEEE_FLOAT {
+                let sub_format = format.SubFormat;
+                if sub_format != Multimedia::KSDATAFORMAT_SUBTYPE_IEEE_FLOAT {
                     return Err(error::WasapiError::Other(
                         "Device's exclusive mode format is not 32-bit float.".to_string(),
                     ));
