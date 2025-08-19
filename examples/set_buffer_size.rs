@@ -120,7 +120,7 @@ where
         samplerate: 48000.0,
         channels: ChannelMap32::from_indices([0, 1]),
         buffer_size_range: (Some(requested_buffer_size), Some(requested_buffer_size)),
-        exclusive: false,
+        exclusive: true,
     };
 
     let callback = MyCallback {

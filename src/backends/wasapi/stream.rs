@@ -178,7 +178,7 @@ impl<Callback, Iface: Interface> AudioThread<Callback, Iface> {
                 }
                 format
             };
-            let (buffer_duration, periodicity) = if sharemode == Audio::AUDCLNT_SHAREMODE_EXCLUSIVE {
+            let (buffer_duration, periodicity) = {
                 let frame_size = stream_config
                     .buffer_size_range
                     .0
@@ -188,9 +188,12 @@ impl<Callback, Iface: Interface> AudioThread<Callback, Iface> {
                         buffer_size_to_duration(frame_size, stream_config.samplerate as _)
                     })
                     .unwrap_or(0);
-                (duration, duration)
-            } else {
-                (0, 0)
+
+                if sharemode == Audio::AUDCLNT_SHAREMODE_EXCLUSIVE {
+                    (duration, duration)
+                } else {
+                    (duration, 0)
+                }
             };
 
             audio_client.Initialize(
