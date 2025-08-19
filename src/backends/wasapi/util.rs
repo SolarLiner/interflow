@@ -63,7 +63,7 @@ pub fn com_initializer() {
 }
 
 #[derive(Debug, Clone)]
-pub struct WasapiMMDevice(Audio::IMMDevice);
+pub struct WasapiMMDevice(pub(crate) Audio::IMMDevice);
 
 unsafe impl Send for WasapiMMDevice {}
 
