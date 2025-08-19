@@ -13,7 +13,7 @@ log = { version = "0.4.27", features = ["kv"] }
 ndarray = "0.16.1"
 oneshot = "0.1.11"
 rtrb = "0.3.2"
-thiserror = "2.0.14"
+thiserror = "2.0.15"
 zerocopy = { version = "0.8.26", optional = true }
 
 [dev-dependencies]
