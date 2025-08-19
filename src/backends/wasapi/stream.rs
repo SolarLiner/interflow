@@ -180,45 +180,34 @@ impl<Callback, Iface: Interface> AudioThread<Callback, Iface> {
                 let format_ptr = blob.pBlobData as *const Audio::WAVEFORMATEX;
                 let format_ex = unsafe { *format_ptr };
 
-                let mut format = if format_ex.wFormatTag as u32
+                let format = if format_ex.wFormatTag as u32
                     == KernelStreaming::WAVE_FORMAT_EXTENSIBLE
                 {
                     if blob.cbSize < mem::size_of::<Audio::WAVEFORMATEXTENSIBLE>() as u32 {
                         return Err(error::WasapiError::Other(
-                            "Invalid device format property size for extensible format".to_string(),
+                            "Invalid device format property size for extensible format"
+                                .to_string(),
                         ));
                     }
                     unsafe { *(format_ptr as *const Audio::WAVEFORMATEXTENSIBLE) }
                 } else {
-                    // Convert to extensible
-                    Audio::WAVEFORMATEXTENSIBLE {
-                        Format: format_ex,
-                        Samples: Audio::WAVEFORMATEXTENSIBLE_0 {
-                            wValidBitsPerSample: format_ex.wBitsPerSample,
-                        },
-                        dwChannelMask: 0, // will be overwritten later
-                        SubFormat: if format_ex.wFormatTag == Audio::WAVE_FORMAT_PCM as u16 {
-                            KernelStreaming::KSDATAFORMAT_SUBTYPE_PCM
-                        } else if format_ex.wFormatTag == Multimedia::WAVE_FORMAT_IEEE_FLOAT as u16
-                        {
-                            Multimedia::KSDATAFORMAT_SUBTYPE_IEEE_FLOAT
-                        } else {
-                            windows::core::GUID::zeroed()
-                        },
-                    }
+                    return Err(error::WasapiError::Other(
+                        "Device's default format is not WAVEFORMATEXTENSIBLE, which is currently required for exclusive mode.".to_string()
+                    ));
                 };
 
-                // Now modify it
-                format.Format.nSamplesPerSec = stream_config.samplerate as u32;
-                format.Format.nChannels = stream_config.channels.count() as u16;
-                format.Format.wBitsPerSample = 32; // For f32
-                format.Format.nBlockAlign =
-                    format.Format.nChannels * (format.Format.wBitsPerSample / 8);
-                format.Format.nAvgBytesPerSec =
-                    format.Format.nSamplesPerSec * format.Format.nBlockAlign as u32;
-                format.Samples.wValidBitsPerSample = 32;
-                format.SubFormat = Multimedia::KSDATAFORMAT_SUBTYPE_IEEE_FLOAT;
-                format.dwChannelMask = KernelStreaming::KSAUDIO_SPEAKER_DIRECTOUT;
+                // In exclusive mode, we cannot change the format.
+                // We must update our own stream_config to match the device's format.
+                stream_config.samplerate = format.Format.nSamplesPerSec as f64;
+                stream_config.channels = 0u32.with_indices(0..format.Format.nChannels as _);
+
+                // Also check if the format is float, which our pipeline expects.
+                if format.SubFormat != Multimedia::KSDATAFORMAT_SUBTYPE_IEEE_FLOAT {
+                    return Err(error::WasapiError::Other(
+                        "Device's exclusive mode format is not 32-bit float.".to_string(),
+                    ));
+                }
+
                 format
             } else {
                 let mut format = {
