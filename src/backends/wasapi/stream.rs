@@ -267,16 +267,23 @@ impl<Callback, Iface: Interface> AudioThread<Callback, Iface> {
                     .unwrap_or(0);
 
                 if sharemode == Audio::AUDCLNT_SHAREMODE_EXCLUSIVE {
-                    (duration, duration)
+                    let mut min_period = 0;
+                    audio_client.GetDevicePeriod(ptr::null_mut(), &mut min_period)?;
+                    let period = if duration == 0 { min_period } else { duration };
+                    (period, period)
                 } else {
                     (duration, 0)
                 }
             };
 
+            let mut stream_flags = Audio::AUDCLNT_STREAMFLAGS_EVENTCALLBACK;
+            if sharemode == Audio::AUDCLNT_SHAREMODE_SHARED {
+                stream_flags |= Audio::AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM;
+            }
+
             audio_client.Initialize(
                 sharemode,
-                Audio::AUDCLNT_STREAMFLAGS_EVENTCALLBACK
-                    | Audio::AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM,
+                stream_flags,
                 buffer_duration,
                 periodicity,
                 &format.Format,
