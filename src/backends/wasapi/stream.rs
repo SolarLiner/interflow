@@ -26,6 +26,13 @@ use windows::Win32::System::Threading;
 use windows::Win32::System::Variant::VT_BLOB;
 use windows::Win32::UI::Shell::PropertiesSystem::IPropertyStore;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SampleFormat {
+    F32,
+    I24In32,
+    I16,
+}
+
 type EjectSignal = Arc<AtomicBool>;
 
 #[duplicate_item(
@@ -132,6 +139,7 @@ struct AudioThread<Callback, Interface> {
     callback: Callback,
     event_handle: HANDLE,
     clock_start: Duration,
+    sample_format: SampleFormat,
 }
 
 impl<Callback, Interface> AudioThread<Callback, Interface> {
@@ -157,60 +165,69 @@ impl<Callback, Iface: Interface> AudioThread<Callback, Iface> {
     ) -> Result<Self, error::WasapiError> {
         unsafe {
             let audio_client: Audio::IAudioClient = device.activate()?;
-            let sharemode = if stream_config.exclusive {
+            let mut sharemode = if stream_config.exclusive {
                 Audio::AUDCLNT_SHAREMODE_EXCLUSIVE
             } else {
                 Audio::AUDCLNT_SHAREMODE_SHARED
             };
 
-            let format = if stream_config.exclusive {
+            let mut sample_format = SampleFormat::F32;
+
+            if sharemode == Audio::AUDCLNT_SHAREMODE_EXCLUSIVE {
                 let properties: IPropertyStore = device.0.OpenPropertyStore(STGM_READ)?;
                 let pv = unsafe { properties.GetValue(&PKEY_AudioEngine_DeviceFormat)? };
-                if pv.vt() != VT_BLOB {
-                    return Err(error::WasapiError::Other(
-                        "Invalid device format property type".to_string(),
-                    ));
-                }
-                let blob = unsafe { pv.Anonymous.Anonymous.Anonymous.blob };
-                if blob.cbSize < mem::size_of::<Audio::WAVEFORMATEX>() as u32 {
-                    return Err(error::WasapiError::Other(
-                        "Invalid device format property size".to_string(),
-                    ));
-                }
-                let format_ptr = blob.pBlobData as *const Audio::WAVEFORMATEX;
-                let format_ex = unsafe { *format_ptr };
+                let format_supported = if pv.vt() == VT_BLOB {
+                    let blob = unsafe { pv.Anonymous.Anonymous.Anonymous.blob };
+                    if blob.cbSize >= mem::size_of::<Audio::WAVEFORMATEXTENSIBLE>() as u32 {
+                        let format =
+                            unsafe { &*(blob.pBlobData as *const Audio::WAVEFORMATEXTENSIBLE) };
+                        let sub_format = format.SubFormat;
+                        let bits = format.Format.wBitsPerSample;
+                        let valid_bits = format.Samples.wValidBitsPerSample;
 
-                let format = if format_ex.wFormatTag as u32
-                    == KernelStreaming::WAVE_FORMAT_EXTENSIBLE
-                {
-                    if blob.cbSize < mem::size_of::<Audio::WAVEFORMATEXTENSIBLE>() as u32 {
-                        return Err(error::WasapiError::Other(
-                            "Invalid device format property size for extensible format"
-                                .to_string(),
-                        ));
+                        if sub_format == Multimedia::KSDATAFORMAT_SUBTYPE_IEEE_FLOAT && bits == 32 {
+                            sample_format = SampleFormat::F32;
+                            true
+                        } else if sub_format == KernelStreaming::KSDATAFORMAT_SUBTYPE_PCM
+                            && bits == 32
+                            && valid_bits == 24
+                        {
+                            sample_format = SampleFormat::I24In32;
+                            true
+                        } else if sub_format == KernelStreaming::KSDATAFORMAT_SUBTYPE_PCM
+                            && bits == 16
+                        {
+                            sample_format = SampleFormat::I16;
+                            true
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
                     }
-                    unsafe { *(format_ptr as *const Audio::WAVEFORMATEXTENSIBLE) }
                 } else {
-                    return Err(error::WasapiError::Other(
-                        "Device's default format is not WAVEFORMATEXTENSIBLE, which is currently required for exclusive mode.".to_string()
-                    ));
+                    false
                 };
 
-                // In exclusive mode, we cannot change the format.
-                // We must update our own stream_config to match the device's format.
+                if !format_supported {
+                    log::warn!("Device does not support a compatible format in exclusive mode. Falling back to shared mode.");
+                    sharemode = Audio::AUDCLNT_SHAREMODE_SHARED;
+                }
+            }
+
+            let format = if sharemode == Audio::AUDCLNT_SHAREMODE_EXCLUSIVE {
+                let properties: IPropertyStore = device.0.OpenPropertyStore(STGM_READ)?;
+                let pv = unsafe { properties.GetValue(&PKEY_AudioEngine_DeviceFormat)? };
+                let blob = unsafe { pv.Anonymous.Anonymous.Anonymous.blob };
+                let format_ptr = blob.pBlobData as *const Audio::WAVEFORMATEXTENSIBLE;
+                let format = unsafe { *format_ptr };
+
                 stream_config.samplerate = format.Format.nSamplesPerSec as f64;
                 stream_config.channels = 0u32.with_indices(0..format.Format.nChannels as _);
 
-                // Also check if the format is float, which our pipeline expects.
-                let sub_format = format.SubFormat;
-                if sub_format != Multimedia::KSDATAFORMAT_SUBTYPE_IEEE_FLOAT {
-                    return Err(error::WasapiError::Other(
-                        "Device's exclusive mode format is not 32-bit float.".to_string(),
-                    ));
-                }
-
                 format
             } else {
+                sample_format = SampleFormat::F32; // Shared mode is always f32
                 let mut format = {
                     let format_ptr = unsafe { audio_client.GetMixFormat()? };
                     let format = unsafe { format_ptr.read_unaligned() };
@@ -302,6 +319,7 @@ impl<Callback, Iface: Interface> AudioThread<Callback, Iface> {
                 },
                 clock_start: Duration::ZERO,
                 callback,
+                sample_format,
             })
         }
     }
@@ -402,21 +420,64 @@ impl<Callback: AudioOutputCallback> AudioThread<Callback, Audio::IAudioRenderCli
         } else {
             frames_available
         };
-        let mut buffer = AudioRenderBuffer::<f32>::from_client(
-            &self.interface,
-            self.stream_config.channels.count(),
-            frames_requested,
-        )?;
-        let timestamp = self.output_timestamp()?;
+
+        let channels = self.stream_config.channels.count();
         let context = AudioCallbackContext {
             stream_config: self.stream_config,
-            timestamp,
+            timestamp: self.output_timestamp()?,
         };
-        let buffer =
-            AudioMut::from_interleaved_mut(&mut buffer, self.stream_config.channels.count())
-                .unwrap();
-        let output = AudioOutput { timestamp, buffer };
-        self.callback.on_output_data(context, output);
+
+        match self.sample_format {
+            SampleFormat::F32 => {
+                let mut buffer = AudioRenderBuffer::<f32>::from_client(
+                    &self.interface,
+                    channels,
+                    frames_requested,
+                )?;
+                let buffer = AudioMut::from_interleaved_mut(&mut buffer, channels).unwrap();
+                let output = AudioOutput {
+                    timestamp: context.timestamp,
+                    buffer,
+                };
+                self.callback.on_output_data(context, output);
+            }
+            SampleFormat::I24In32 => {
+                let mut buffer = AudioRenderBuffer::<i32>::from_client(
+                    &self.interface,
+                    channels,
+                    frames_requested,
+                )?;
+                let mut f32_buffer = vec![0.0f32; frames_requested * channels];
+                let mut audio_mut =
+                    AudioMut::from_interleaved_mut(&mut f32_buffer, channels).unwrap();
+                let output = AudioOutput {
+                    timestamp: context.timestamp,
+                    buffer: audio_mut,
+                };
+                self.callback.on_output_data(context, output);
+                for (i, sample) in f32_buffer.iter().enumerate() {
+                    buffer[i] = (sample * 8_388_607.0) as i32;
+                }
+            }
+            SampleFormat::I16 => {
+                let mut buffer = AudioRenderBuffer::<i16>::from_client(
+                    &self.interface,
+                    channels,
+                    frames_requested,
+                )?;
+                let mut f32_buffer = vec![0.0f32; frames_requested * channels];
+                let mut audio_mut =
+                    AudioMut::from_interleaved_mut(&mut f32_buffer, channels).unwrap();
+                let output = AudioOutput {
+                    timestamp: context.timestamp,
+                    buffer: audio_mut,
+                };
+                self.callback.on_output_data(context, output);
+                for (i, sample) in f32_buffer.iter().enumerate() {
+                    buffer[i] = (sample * 32767.0) as i16;
+                }
+            }
+        }
         Ok(())
     }
 }
