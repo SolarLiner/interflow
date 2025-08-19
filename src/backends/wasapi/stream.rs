@@ -178,21 +178,27 @@ impl<Callback, Iface: Interface> AudioThread<Callback, Iface> {
                 }
                 format
             };
-            let frame_size = stream_config
-                .buffer_size_range
-                .0
-                .or(stream_config.buffer_size_range.1);
-            let buffer_duration = frame_size
-                .map(|frame_size| {
-                    buffer_size_to_duration(frame_size, stream_config.samplerate as _)
-                })
-                .unwrap_or(0);
+            let (buffer_duration, periodicity) = if sharemode == Audio::AUDCLNT_SHAREMODE_EXCLUSIVE {
+                let frame_size = stream_config
+                    .buffer_size_range
+                    .0
+                    .or(stream_config.buffer_size_range.1);
+                let duration = frame_size
+                    .map(|frame_size| {
+                        buffer_size_to_duration(frame_size, stream_config.samplerate as _)
+                    })
+                    .unwrap_or(0);
+                (duration, duration)
+            } else {
+                (0, 0)
+            };
+
             audio_client.Initialize(
                 sharemode,
                 Audio::AUDCLNT_STREAMFLAGS_EVENTCALLBACK
                     | Audio::AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM,
                 buffer_duration,
-                0,
+                periodicity,
                 &format.Format,
                 None,
             )?;
