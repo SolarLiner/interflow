@@ -9,7 +9,7 @@ license = "MIT"
 bitflags = "2.9.4"
 duplicate = "2.0.0"
 fixed-resample = "0.9.1"
-log = { version = "0.4.27", features = ["kv"] }
+log = { version = "0.4.28", features = ["kv"] }
 ndarray = "0.16.1"
 oneshot = "0.1.11"
 rtrb = "0.3.2"
