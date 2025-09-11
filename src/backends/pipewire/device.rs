@@ -1,8 +1,9 @@
 use super::stream::StreamHandle;
-use crate::backends::pipewire::error::PipewireError;
 use crate::{
-    AudioDevice, AudioInputCallback, AudioInputDevice, AudioOutputCallback, AudioOutputDevice,
-    Channel, DeviceType, SendEverywhereButOnWeb, StreamConfig,
+    backends::pipewire::error::PipewireError,
+    device::{AudioDevice, AudioInputDevice, AudioOutputDevice, DeviceType},
+    stream::{AudioInputCallback, AudioOutputCallback, StreamConfig},
+    SendEverywhereButOnWeb,
 };
 use pipewire::context::Context;
 use pipewire::main_loop::MainLoop;
@@ -52,14 +53,6 @@ impl AudioDevice for PipewireDevice {
         }
     }
 
-    fn device_type(&self) -> DeviceType {
-        self.device_type
-    }
-
-    fn channel_map(&self) -> impl IntoIterator<Item = Channel> {
-        []
-    }
-
     fn is_config_supported(&self, _config: &StreamConfig) -> bool {
         true
     }
@@ -94,6 +87,10 @@ impl AudioInputDevice for PipewireDevice {
             callback,
         )
     }
+
+    fn input_channel_map(&self) -> impl Iterator<Item = crate::device::Channel> {
+        [].into_iter()
+    }
 }
 
 impl AudioOutputDevice for PipewireDevice {
@@ -120,6 +117,10 @@ impl AudioOutputDevice for PipewireDevice {
             self.stream_properties.clone(),
             callback,
         )
+    }
+
+    fn output_channel_map(&self) -> impl Iterator<Item = crate::device::Channel> {
+        [].into_iter()
     }
 }
 
