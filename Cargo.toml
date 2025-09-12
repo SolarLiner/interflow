@@ -28,7 +28,7 @@ cfg_aliases = "0.2.1"
 pipewire = ["dep:pipewire", "dep:libspa", "dep:libspa-sys", "dep:zerocopy"]
 
 [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd"))'.dependencies]
-alsa = "0.9.1"
+alsa = "0.10.0"
 libc = "0.2.175"
 libspa = { version = "0.8.0", optional = true }
 libspa-sys = { version = "0.8.0", optional = true }
