@@ -3,8 +3,6 @@
 
 use bitflags::bitflags;
 use std::borrow::Cow;
-use std::fmt;
-use std::fmt::Formatter;
 
 use crate::audio_buffer::{AudioMut, AudioRef};
 use crate::channel_map::ChannelMap32;

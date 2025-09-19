@@ -9,7 +9,6 @@ use crate::{
 use libspa::buffer::Data;
 use libspa::param::audio::{AudioFormat, AudioInfoRaw};
 use libspa::pod::Pod;
-use libspa::utils::Direction;
 use libspa_sys::{SPA_PARAM_EnumFormat, SPA_TYPE_OBJECT_Format};
 use pipewire::context::Context;
 use pipewire::keys;
