@@ -124,7 +124,7 @@ impl<S: RawData> AudioBufferBase<S> {
 
 impl<S: Data> AudioBufferBase<S> {
     /// Return an immutable audio buffer view, sharing the data with this buffer.
-    pub fn as_ref(&self) -> AudioRef<S::Elem> {
+    pub fn as_ref(&self) -> AudioRef<'_, S::Elem> {
         AudioRef {
             storage: self.storage.view(),
         }
@@ -132,7 +132,7 @@ impl<S: Data> AudioBufferBase<S> {
 
     /// Slice the contents of this audio buffer, returning an immutable view of this buffer
     /// containing only the audio samples at indices within the provided range.
-    pub fn slice(&self, range: impl RangeBounds<usize>) -> AudioRef<S::Elem> {
+    pub fn slice(&self, range: impl RangeBounds<usize>) -> AudioRef<'_, S::Elem> {
         let start = match range.start_bound() {
             Bound::Included(i) => *i,
             Bound::Excluded(i) => *i + 1,
@@ -148,7 +148,7 @@ impl<S: Data> AudioBufferBase<S> {
     }
 
     /// Iterate over non-overlapping chunks of this audio buffer.
-    pub fn chunks(&self, size: usize) -> impl Iterator<Item = AudioRef<S::Elem>> {
+    pub fn chunks(&self, size: usize) -> impl Iterator<Item = AudioRef<'_, S::Elem>> {
         let mut i = 0;
         std::iter::from_fn(move || {
             if i >= self.num_samples() {
@@ -162,7 +162,7 @@ impl<S: Data> AudioBufferBase<S> {
 
     /// Iterate over non-overlapping chunks of this audio buffer. If the last chunk has a smaller length than the
     /// requested size, it will not be yielded.
-    pub fn chunks_exact(&self, size: usize) -> impl Iterator<Item = AudioRef<S::Elem>> {
+    pub fn chunks_exact(&self, size: usize) -> impl Iterator<Item = AudioRef<'_, S::Elem>> {
         let mut i = 0;
         std::iter::from_fn(move || {
             if i + size >= self.num_samples() {
@@ -179,7 +179,7 @@ impl<S: Data> AudioBufferBase<S> {
     /// # Arguments
     ///
     /// - `size`: Size of the window
-    pub fn windows(&self, size: usize) -> impl Iterator<Item = AudioRef<S::Elem>> {
+    pub fn windows(&self, size: usize) -> impl Iterator<Item = AudioRef<'_, S::Elem>> {
         let mut i = 0;
         std::iter::from_fn(move || {
             if i + size >= self.num_samples() {
@@ -193,24 +193,24 @@ impl<S: Data> AudioBufferBase<S> {
 
     /// Return an immutable view of a single channel. Panics when the requested channel does not
     /// exist.
-    pub fn get_channel(&self, channel: usize) -> ArrayView1<S::Elem> {
+    pub fn get_channel(&self, channel: usize) -> ArrayView1<'_, S::Elem> {
         self.storage.row(channel)
     }
 
     /// Return an iterator of immutable views of the channels present in this audio buffer.
-    pub fn channels(&self) -> impl '_ + Iterator<Item = ArrayView1<S::Elem>> {
+    pub fn channels(&self) -> impl '_ + Iterator<Item = ArrayView1<'_, S::Elem>> {
         self.storage.rows().into_iter()
     }
 
     /// Get a single frame, that is all channels at the specified sample index. Panics when the
     /// sample is out of range.
-    pub fn get_frame(&self, sample: usize) -> ArrayView1<S::Elem> {
+    pub fn get_frame(&self, sample: usize) -> ArrayView1<'_, S::Elem> {
         self.storage.column(sample)
     }
 
     /// Return an immutable interleaved 2-D array view, where samples are in rows and channels are
     /// in columns.
-    pub fn as_interleaved(&self) -> ArrayView2<S::Elem> {
+    pub fn as_interleaved(&self) -> ArrayView2<'_, S::Elem> {
         self.storage.t()
     }
 
@@ -247,7 +247,7 @@ impl<S: Data> AudioBufferBase<S> {
 
 impl<S: DataMut> AudioBufferBase<S> {
     /// Return a mutable audio buffer view.
-    pub fn as_mut(&mut self) -> AudioMut<S::Elem> {
+    pub fn as_mut(&mut self) -> AudioMut<'_, S::Elem> {
         AudioMut {
             storage: self.storage.view_mut(),
         }
@@ -255,7 +255,7 @@ impl<S: DataMut> AudioBufferBase<S> {
 
     /// Slice the contents of this audio buffer, returning a mutable view of this buffer
     /// containing only the audio samples at indices within the provided range.
-    pub fn slice_mut(&mut self, range: impl RangeBounds<usize>) -> AudioMut<S::Elem> {
+    pub fn slice_mut(&mut self, range: impl RangeBounds<usize>) -> AudioMut<'_, S::Elem> {
         let start = match range.start_bound() {
             Bound::Included(i) => *i,
             Bound::Excluded(i) => *i + 1,
@@ -272,17 +272,17 @@ impl<S: DataMut> AudioBufferBase<S> {
 
     /// Return a mutable view of a single channel. Panics when the requested channel does not
     /// exist.
-    pub fn get_channel_mut(&mut self, channel: usize) -> ArrayViewMut1<S::Elem> {
+    pub fn get_channel_mut(&mut self, channel: usize) -> ArrayViewMut1<'_, S::Elem> {
         self.storage.row_mut(channel)
     }
 
     /// Return an iterator of mutable views of the channels present in this audio buffer.
-    pub fn channels_mut(&mut self) -> impl '_ + Iterator<Item = ArrayViewMut1<S::Elem>> {
+    pub fn channels_mut(&mut self) -> impl '_ + Iterator<Item = ArrayViewMut1<'_, S::Elem>> {
         self.storage.rows_mut().into_iter()
     }
     /// Return a mutable interleaved 2-D array view, where samples are in rows and channels are in
     /// columns.
-    pub fn as_interleaved_mut(&mut self) -> ArrayViewMut2<S::Elem> {
+    pub fn as_interleaved_mut(&mut self) -> ArrayViewMut2<'_, S::Elem> {
         self.storage.view_mut().reversed_axes()
     }
 
@@ -395,7 +395,7 @@ where
     /// Panics if the sample index is out of range.
     ///
     /// returns: ArrayBase<ViewRepr<&mut <S as RawData>::Elem>, Dim<[usize; 1]>>
-    pub fn get_frame_mut(&mut self, sample: usize) -> ArrayViewMut1<S::Elem> {
+    pub fn get_frame_mut(&mut self, sample: usize) -> ArrayViewMut1<'_, S::Elem> {
         self.storage.column_mut(sample)
     }
 

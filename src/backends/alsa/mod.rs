@@ -40,7 +40,7 @@ impl AudioDriver for AlsaDriver {
 
     const DISPLAY_NAME: &'static str = "ALSA";
 
-    fn version(&self) -> Result<Cow<str>, Self::Error> {
+    fn version(&self) -> Result<Cow<'_, str>, Self::Error> {
         Ok(Cow::Borrowed("unknown"))
     }
 

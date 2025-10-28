@@ -33,7 +33,7 @@ impl PipewireDevice {
 impl AudioDevice for PipewireDevice {
     type Error = PipewireError;
 
-    fn name(&self) -> Cow<str> {
+    fn name(&self) -> Cow<'_, str> {
         let Some(node_id) = self.target_node else {
             return Cow::Borrowed("Default");
         };
@@ -56,7 +56,7 @@ impl AudioDevice for PipewireDevice {
         self.device_type
     }
 
-    fn channel_map(&self) -> impl IntoIterator<Item = Channel> {
+    fn channel_map(&self) -> impl IntoIterator<Item = Channel<'_>> {
         []
     }
 
