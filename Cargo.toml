@@ -6,7 +6,7 @@ rust-version = "1.80"
 license = "MIT"
 
 [dependencies]
-bitflags = "2.9.4"
+bitflags = "2.10.0"
 duplicate = "2.0.0"
 fixed-resample = "0.9.2"
 log = { version = "0.4.28", features = ["kv"] }
