@@ -71,7 +71,7 @@ pub trait CreateBitset: Bitset {
     /// # Arguments
     ///
     /// - `indices`: [`IntoIterator`] implementation that returns [`usize`] values corresponding to the indices to
-    ///    set in the bitset.
+    ///   set in the bitset.
     fn from_indices(indices: impl IntoIterator<Item = usize>) -> Self;
 }
 

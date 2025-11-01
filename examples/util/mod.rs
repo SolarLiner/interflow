@@ -1,3 +1,9 @@
+// This module is used in a special way: it is (re)compiled into each and every top-level example.
+// Every example uses only a subset of its functionality, hence we get a lot of artificial unused
+// warnings.
+// Unfortunate consequence is that we lose the genuine unused warnings.
+#![allow(unused)]
+
 use indicatif::{ProgressBar, ProgressStyle};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;

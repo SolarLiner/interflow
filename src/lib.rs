@@ -3,8 +3,6 @@
 
 use bitflags::bitflags;
 use std::borrow::Cow;
-use std::fmt;
-use std::fmt::Formatter;
 
 use crate::audio_buffer::{AudioMut, AudioRef};
 use crate::channel_map::ChannelMap32;
@@ -55,7 +53,7 @@ pub trait AudioDriver {
 
     /// Runtime version of the audio driver. If there is a difference between "client" and
     /// "server" versions, then this should reflect the server version.
-    fn version(&self) -> Result<Cow<str>, Self::Error>;
+    fn version(&self) -> Result<Cow<'_, str>, Self::Error>;
 
     /// Default device of the given type. This is most often tied to the audio settings at the
     /// operating system level.
@@ -137,14 +135,14 @@ pub trait AudioDevice {
     type Error: std::error::Error;
 
     /// Device display name
-    fn name(&self) -> Cow<str>;
+    fn name(&self) -> Cow<'_, str>;
 
     /// Device type. Either input, output, or duplex.
     fn device_type(&self) -> DeviceType;
 
     /// Iterator of the available channels in this device. Channel indices are used when
     /// specifying which channels to open when creating an audio stream.
-    fn channel_map(&self) -> impl IntoIterator<Item = Channel>;
+    fn channel_map(&self) -> impl IntoIterator<Item = Channel<'_>>;
 
     /// Not all configuration values make sense for a particular device, and this method tests a
     /// configuration to see if it can be used in an audio stream.

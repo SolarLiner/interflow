@@ -29,7 +29,7 @@ impl fmt::Debug for AlsaDevice {
 impl AudioDevice for AlsaDevice {
     type Error = AlsaError;
 
-    fn name(&self) -> Cow<str> {
+    fn name(&self) -> Cow<'_, str> {
         Cow::Borrowed(self.name.as_str())
     }
 
@@ -40,7 +40,7 @@ impl AudioDevice for AlsaDevice {
         }
     }
 
-    fn channel_map(&self) -> impl IntoIterator<Item = Channel> {
+    fn channel_map(&self) -> impl IntoIterator<Item = Channel<'_>> {
         []
     }
 
@@ -112,7 +112,7 @@ impl AlsaDevice {
         })
     }
 
-    fn get_hwp(&self, config: &StreamConfig) -> Result<pcm::HwParams, alsa::Error> {
+    fn get_hwp(&self, config: &StreamConfig) -> Result<pcm::HwParams<'_>, alsa::Error> {
         let hwp = pcm::HwParams::any(&self.pcm)?;
         hwp.set_channels(config.channels as _)?;
         hwp.set_rate(config.samplerate as _, alsa::ValueOr::Nearest)?;
@@ -130,7 +130,7 @@ impl AlsaDevice {
     pub(super) fn apply_config(
         &self,
         config: &StreamConfig,
-    ) -> Result<(pcm::HwParams, pcm::SwParams, pcm::IO<f32>), alsa::Error> {
+    ) -> Result<(pcm::HwParams<'_>, pcm::SwParams<'_>, pcm::IO<'_, f32>), alsa::Error> {
         let hwp = self.get_hwp(config)?;
         self.pcm.hw_params(&hwp)?;
         let io = self.pcm.io_f32()?;

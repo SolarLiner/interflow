@@ -15,7 +15,7 @@ impl AudioDriver for PipewireDriver {
     type Device = PipewireDevice;
     const DISPLAY_NAME: &'static str = "Pipewire";
 
-    fn version(&self) -> Result<Cow<str>, Self::Error> {
+    fn version(&self) -> Result<Cow<'_, str>, Self::Error> {
         // TODO: Figure out how to get version
         Ok(Cow::Borrowed("unknown"))
     }

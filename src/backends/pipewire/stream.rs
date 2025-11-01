@@ -263,13 +263,13 @@ impl<Callback: 'static + Send + AudioInputCallback> StreamHandle<Callback> {
             config,
             properties,
             callback,
-            pipewire::spa::utils::Direction::Input,
+            Direction::Input,
             |datas, inner, channels| {
                 // TODO: also take chunk offset into account to index into the data?
                 let mut frames_total = 0;
 
                 for (chunk, data) in datas.iter_mut().enumerate() {
-                    let samples = data.chunk().size() as usize / size_of::<f32>() as usize;
+                    let samples = data.chunk().size() as usize / size_of::<f32>();
                     if let Some(bytes) = data.data() {
                         let frames = samples / channels;
                         frames_total += frames;
