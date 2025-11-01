@@ -7,15 +7,13 @@ use std::convert::Infallible;
 
 use coreaudio::audio_unit::audio_format::LinearPcmFlags;
 use coreaudio::audio_unit::macos_helpers::{
-    audio_unit_from_device_id, get_audio_device_ids_for_scope, get_default_device_id,
-    get_device_name, get_supported_physical_stream_formats,
+    audio_unit_from_device_id, get_audio_device_ids_for_scope, get_audio_device_supports_scope,
+    get_default_device_id, get_device_name, get_supported_physical_stream_formats,
 };
 use coreaudio::audio_unit::render_callback::{data, Args};
-use coreaudio::audio_unit::{AudioUnit, Element, SampleFormat, Scope, StreamFormat};
+use coreaudio::audio_unit::{AudioUnit, Element, IOType, SampleFormat, Scope, StreamFormat};
 use coreaudio_sys::{
-    kAudioDevicePropertyBufferFrameSize, kAudioDevicePropertyBufferFrameSizeRange,
-    kAudioObjectPropertyElementMaster, kAudioObjectPropertyScopeInput,
-    kAudioObjectPropertyScopeOutput, kAudioUnitProperty_MaximumFramesPerSlice,
+    kAudioDevicePropertyBufferFrameSize, kAudioOutputUnitProperty_EnableIO,
     kAudioUnitProperty_SampleRate, kAudioUnitProperty_StreamFormat, AudioDeviceID,
     AudioObjectGetPropertyData, AudioObjectPropertyAddress, AudioValueRange,
 };
@@ -65,9 +63,12 @@ use crate::prelude::{AudioMut, AudioRef, ChannelMap32};
 use crate::timestamp::Timestamp;
 use crate::{
     AudioCallback, AudioCallbackContext, AudioDevice, AudioDriver, AudioInput, AudioOutput,
-    AudioStreamHandle, Channel, DeviceType, ResolvedStreamConfig, SendEverywhereButOnWeb,
+    AudioStreamHandle, Channel, DeviceType, ResolvedStreamConfig,
     StreamConfig,
 };
+use crate::duplex::InputProxy;
+
+type Result<T, E = CoreAudioError> = std::result::Result<T, E>;
 
 /// Type of errors from the CoreAudio backend
 #[derive(Debug, Error)]
@@ -90,28 +91,25 @@ impl AudioDriver for CoreAudioDriver {
     type Device = CoreAudioDevice;
     const DISPLAY_NAME: &'static str = "CoreAudio";
 
-    fn version(&self) -> Result<Cow<str>, Self::Error> {
+    fn version(&self) -> Result<Cow<str>> {
         Ok(Cow::Borrowed("unknown"))
     }
 
-    fn default_device(&self, device_type: DeviceType) -> Result<Option<Self::Device>, Self::Error> {
+    fn default_device(&self, device_type: DeviceType) -> Result<Option<Self::Device>> {
         let Some(device_id) = get_default_device_id(device_type.is_input()) else {
             return Ok(None);
         };
-        Ok(Some(CoreAudioDevice::from_id(
-            device_id,
-            device_type.is_input(),
-        )?))
+        Ok(Some(CoreAudioDevice::from_id(device_id)?))
     }
 
-    fn list_devices(&self) -> Result<impl IntoIterator<Item = Self::Device>, Self::Error> {
+    fn list_devices(&self) -> Result<impl IntoIterator<Item = Self::Device>> {
         let per_scope = [Scope::Input, Scope::Output]
             .into_iter()
             .map(|scope| {
                 let audio_ids = get_audio_device_ids_for_scope(scope)?;
                 audio_ids
                     .into_iter()
-                    .map(|id| CoreAudioDevice::from_id(id, matches!(scope, Scope::Input)))
+                    .map(|id| CoreAudioDevice::from_id(id))
                     .collect::<Result<Vec<_>, _>>()
             })
             .collect::<Result<Vec<_>, _>>()?;
@@ -127,10 +125,11 @@ pub struct CoreAudioDevice {
 }
 
 impl CoreAudioDevice {
-    fn from_id(device_id: AudioDeviceID, is_input: bool) -> Result<Self, CoreAudioError> {
-        let is_output = !is_input; // TODO: Interact with CoreAudio directly to be able to work with duplex devices
-        let is_default = get_default_device_id(true) == Some(device_id)
-            || get_default_device_id(false) == Some(device_id);
+    fn from_id(device_id: AudioDeviceID) -> Result<Self> {
+        let is_input = get_audio_device_supports_scope(device_id, Scope::Input)?;
+        let is_output = get_audio_device_supports_scope(device_id, Scope::Output)?;
+        let is_default = is_input && get_default_device_id(true) == Some(device_id)
+            || is_output && get_default_device_id(false) == Some(device_id);
         let mut device_type = DeviceType::empty();
         device_type.set(DeviceType::INPUT, is_input);
         device_type.set(DeviceType::OUTPUT, is_output);
@@ -139,6 +138,33 @@ impl CoreAudioDevice {
             device_id,
             device_type,
         })
+    }
+
+    fn get_audio_unit(&self) -> Result<AudioUnit> {
+        let mut unit = AudioUnit::new(IOType::HalOutput)?;
+        {
+            let value = if self.device_type.is_input() { 1u32 } else { 0 };
+            unit.set_property(
+                kAudioOutputUnitProperty_EnableIO,
+                Scope::Input,
+                Element::Input,
+                Some(&value),
+            )?;
+        }
+        {
+            let value = if self.device_type.is_output() {
+                1u32
+            } else {
+                0
+            };
+            unit.set_property(
+                kAudioOutputUnitProperty_EnableIO,
+                Scope::Output,
+                Element::Output,
+                Some(&value),
+            )?;
+        }
+        Ok(unit)
     }
 
     /// Sets the device's buffer size if requested in the `StreamConfig`.
@@ -206,25 +232,20 @@ impl AudioDevice for CoreAudioDevice {
     }
 
     fn default_config(&self) -> Result<StreamConfig, Self::Error> {
-        let audio_unit = audio_unit_from_device_id(self.device_id, self.device_type.is_input())?;
-        let format = if self.device_type.is_input() {
-            audio_unit.input_stream_format()?
-        } else {
-            audio_unit.output_stream_format()?
-        };
+        let audio_unit = self.get_audio_unit()?;
+        let input_channels = audio_unit
+            .input_stream_format()
+            .map(|fmt| fmt.channels as usize)
+            .unwrap_or(0);
+        let output_channels = audio_unit
+            .output_stream_format()
+            .map(|fmt| fmt.channels as usize)
+            .unwrap_or(0);
 
         Ok(StreamConfig {
-            samplerate: audio_unit.sample_rate()?,
-            input_channels: if self.device_type.is_input() {
-                format.channels as _
-            } else {
-                0
-            },
-            output_channels: if self.device_type.is_output() {
-                format.channels as _
-            } else {
-                0
-            },
+            sample_rate: audio_unit.sample_rate()?,
+            input_channels,
+            output_channels,
             buffer_size_range: (None, None),
             exclusive: false,
         })
@@ -268,7 +289,7 @@ impl AudioDevice for CoreAudioDevice {
                         .into_iter()
                         .map(move |exclusive| (sr, exclusive))
                 })
-                .map(move |(samplerate, exclusive)| {
+                .map(move |(sample_rate, exclusive)| {
                     let channels = asbd.mFormat.mChannelsPerFrame;
                     let input_channels = if device_type.is_input() {
                         channels as _
@@ -281,7 +302,7 @@ impl AudioDevice for CoreAudioDevice {
                         0
                     };
                     StreamConfig {
-                        samplerate,
+                        sample_rate,
                         input_channels,
                         output_channels,
                         buffer_size_range,
@@ -291,15 +312,12 @@ impl AudioDevice for CoreAudioDevice {
         }))
     }
 
-    fn create_stream<Callback: SendEverywhereButOnWeb + AudioCallback>(
+    fn create_stream<Callback: 'static + Send + AudioCallback>(
         &self,
         stream_config: StreamConfig,
         callback: Callback,
     ) -> Result<Self::StreamHandle<Callback>, Self::Error> {
-        let mut device = *self;
-        device.device_type = DeviceType::INPUT;
-        device.set_buffer_size_from_config(&stream_config)?;
-        CoreAudioStream::new(self.device_id, self.device_type, stream_config, callback)
+        CoreAudioStream::new(self, stream_config, callback)
     }
 }
 
@@ -344,26 +362,32 @@ impl<Callback> AudioStreamHandle<Callback> for CoreAudioStream<Callback> {
 
 impl<Callback: 'static + Send + AudioCallback> CoreAudioStream<Callback> {
     fn new(
-        device_id: AudioDeviceID,
-        device_type: DeviceType,
+        device: &CoreAudioDevice,
         stream_config: StreamConfig,
         callback: Callback,
     ) -> Result<Self, CoreAudioError> {
-        if device_type.is_input() && !device_type.is_output() {
-            Self::new_input(device_id, stream_config, callback)
+        let requested_type = stream_config.requested_device_type();
+        assert!(!requested_type.is_duplex(), "CoreAudio does not support native duplex mode");
+
+        let unsupported = device.device_type & !requested_type;
+        if !unsupported.is_empty() {
+            log::warn!("Cannot request {unsupported:?} for {device}, ignoring", device=device.name());
+        }
+        let unit = device.get_audio_unit()?;
+        if requested_type.is_input() {
+            Self::new_input(unit, stream_config, callback)
         } else {
-            Self::new_output(device_id, stream_config, callback)
+            Self::new_output(unit, stream_config, callback)
         }
     }
 
     fn new_input(
-        device_id: AudioDeviceID,
+        mut audio_unit: AudioUnit,
         stream_config: StreamConfig,
         mut callback: Callback,
     ) -> Result<Self, CoreAudioError> {
-        let mut audio_unit = audio_unit_from_device_id(device_id, true)?;
         let asbd =
-            input_stream_format(stream_config.samplerate, stream_config.input_channels).to_asbd();
+            input_stream_format(stream_config.sample_rate, stream_config.input_channels).to_asbd();
         audio_unit.set_property(
             kAudioUnitProperty_StreamFormat,
             Scope::Output,
@@ -435,13 +459,12 @@ impl<Callback: 'static + Send + AudioCallback> CoreAudioStream<Callback> {
     }
 
     fn new_output(
-        device_id: AudioDeviceID,
+        mut audio_unit: AudioUnit,
         stream_config: StreamConfig,
         mut callback: Callback,
     ) -> Result<Self, CoreAudioError> {
-        let mut audio_unit = audio_unit_from_device_id(device_id, false)?;
-        let asbd =
-            output_stream_format(stream_config.samplerate, stream_config.output_channels).to_asbd();
+        let asbd = output_stream_format(stream_config.sample_rate, stream_config.output_channels)
+            .to_asbd();
         audio_unit.set_property(
             kAudioUnitProperty_StreamFormat,
             Scope::Input,
@@ -467,7 +490,7 @@ impl<Callback: 'static + Send + AudioCallback> CoreAudioStream<Callback> {
         let (tx, rx) = oneshot::channel::<oneshot::Sender<Callback>>();
         callback.prepare(AudioCallbackContext {
             stream_config,
-            timestamp: Timestamp::new(asbd.mSampleRate),
+            timestamp: Timestamp::new(stream_config.sample_rate),
         });
         let mut callback = Some(callback);
 
@@ -481,7 +504,7 @@ impl<Callback: 'static + Send + AudioCallback> CoreAudioStream<Callback> {
                 Timestamp::from_count(stream_config.sample_rate, args.time_stamp.mSampleTime as _);
             let dummy_input = AudioInput {
                 buffer: AudioRef::empty(),
-                timestamp: Timestamp::new(asbd.mSampleRate),
+                timestamp: Timestamp::new(stream_config.sample_rate),
             };
             let output = AudioOutput {
                 buffer: buffer.as_mut(),
