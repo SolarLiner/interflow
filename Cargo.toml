@@ -2,7 +2,7 @@
 name = "interflow"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.80"
+rust-version = "1.85"
 license = "MIT"
 
 [dependencies]
@@ -51,8 +51,8 @@ windows = { version = "0.61.3", features = [
     "Win32_System_SystemServices",
     "Win32_System_Variant",
     "Win32_Media_Multimedia",
-    "Win32_UI_Shell_PropertiesSystem"
-]}
+    "Win32_UI_Shell_PropertiesSystem",
+] }
 
 [[example]]
 name = "enumerate_alsa"
