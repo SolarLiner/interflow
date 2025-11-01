@@ -13,7 +13,9 @@ use coreaudio::audio_unit::macos_helpers::{
 use coreaudio::audio_unit::render_callback::{data, Args};
 use coreaudio::audio_unit::{AudioUnit, Element, IOType, SampleFormat, Scope, StreamFormat};
 use coreaudio_sys::{
-    kAudioDevicePropertyBufferFrameSize, kAudioOutputUnitProperty_EnableIO,
+    kAudioDevicePropertyBufferFrameSize, kAudioDevicePropertyBufferFrameSizeRange,
+    kAudioObjectPropertyElementMaster, kAudioObjectPropertyScopeInput,
+    kAudioObjectPropertyScopeOutput, kAudioOutputUnitProperty_EnableIO,
     kAudioUnitProperty_SampleRate, kAudioUnitProperty_StreamFormat, AudioDeviceID,
     AudioObjectGetPropertyData, AudioObjectPropertyAddress, AudioValueRange,
 };
@@ -59,14 +61,13 @@ fn set_device_property<T>(
 use thiserror::Error;
 
 use crate::audio_buffer::{AudioBuffer, Sample};
+use crate::duplex::InputProxy;
 use crate::prelude::{AudioMut, AudioRef, ChannelMap32};
 use crate::timestamp::Timestamp;
 use crate::{
     AudioCallback, AudioCallbackContext, AudioDevice, AudioDriver, AudioInput, AudioOutput,
-    AudioStreamHandle, Channel, DeviceType, ResolvedStreamConfig,
-    StreamConfig,
+    AudioStreamHandle, Channel, DeviceType, ResolvedStreamConfig, StreamConfig,
 };
-use crate::duplex::InputProxy;
 
 type Result<T, E = CoreAudioError> = std::result::Result<T, E>;
 
@@ -251,11 +252,6 @@ impl AudioDevice for CoreAudioDevice {
         })
     }
 
-    fn is_config_supported(&self, _config: &StreamConfig) -> bool {
-        true
-    }
-
-    /// Returns the supported I/O buffer size range for the device.
     fn buffer_size_range(&self) -> Result<(Option<usize>, Option<usize>), CoreAudioError> {
         let property_address = AudioObjectPropertyAddress {
             mSelector: kAudioDevicePropertyBufferFrameSizeRange,
@@ -270,6 +266,10 @@ impl AudioDevice for CoreAudioDevice {
         let range: AudioValueRange = get_device_property(self.device_id, property_address)?;
 
         Ok((Some(range.mMinimum as usize), Some(range.mMaximum as usize)))
+    }
+
+    fn is_config_supported(&self, _config: &StreamConfig) -> bool {
+        true
     }
 
     fn enumerate_configurations(&self) -> Option<impl IntoIterator<Item = StreamConfig>> {
@@ -367,11 +367,17 @@ impl<Callback: 'static + Send + AudioCallback> CoreAudioStream<Callback> {
         callback: Callback,
     ) -> Result<Self, CoreAudioError> {
         let requested_type = stream_config.requested_device_type();
-        assert!(!requested_type.is_duplex(), "CoreAudio does not support native duplex mode");
+        assert!(
+            !requested_type.is_duplex(),
+            "CoreAudio does not support native duplex mode"
+        );
 
         let unsupported = device.device_type & !requested_type;
         if !unsupported.is_empty() {
-            log::warn!("Cannot request {unsupported:?} for {device}, ignoring", device=device.name());
+            log::warn!(
+                "Cannot request {unsupported:?} for {device}, ignoring",
+                device = device.name()
+            );
         }
         let unit = device.get_audio_unit()?;
         if requested_type.is_input() {
@@ -537,6 +543,7 @@ impl<Callback: 'static + Send + AudioCallback> CoreAudioStream<Callback> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use coreaudio_sys::{kAudioObjectPropertyElementMaster, kAudioObjectPropertyScopeOutput};
 
     #[test]
     fn test_set_device_buffersize() {

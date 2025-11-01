@@ -3,7 +3,6 @@
 
 use bitflags::bitflags;
 use std::borrow::Cow;
-
 use crate::audio_buffer::{AudioMut, AudioRef};
 use crate::channel_map::ChannelMap32;
 use crate::timestamp::Timestamp;
@@ -188,6 +187,11 @@ pub trait AudioDevice {
     /// Default configuration for this device. If [`Ok`], should return a [`StreamConfig`] that is supported (i.e.,
     /// returns `true` when passed to [`Self::is_config_supported`]).
     fn default_config(&self) -> Result<StreamConfig, Self::Error>;
+
+    /// Returns the supported I/O buffer size range for the device.
+    fn buffer_size_range(&self) -> Result<(Option<usize>, Option<usize>), Self::Error> {
+        Ok((None, None))
+    }
 
     /// Not all configuration values make sense for a particular device, and this method tests a
     /// configuration to see if it can be used in an audio stream.
