@@ -115,6 +115,31 @@ pub struct StreamConfig {
     pub exclusive: bool,
 }
 
+impl StreamConfig {
+    /// Returns a [`DeviceType`] that describes this [`StreamConfig`]. Only [`DeviceType::INPUT`] and
+    /// [`DeviceType::OUTPUT`] are set.
+    pub fn requested_device_type(&self) -> DeviceType {
+        let mut ret = DeviceType::empty();
+        ret.set(DeviceType::INPUT, self.input_channels > 0);
+        ret.set(DeviceType::OUTPUT, self.output_channels > 0);
+        ret
+    }
+
+    /// Changes the [`StreamConfig`] such that it matches the configuration of a stream created with a device with
+    /// the given [`DeviceType`].
+    ///
+    /// This method returns a copy of the input [`StreamConfig`].
+    pub fn restrict(mut self, requested_type: DeviceType) -> Self {
+        if !requested_type.is_input() {
+            self.input_channels = 0;
+        }
+        if !requested_type.is_output() {
+            self.output_channels = 0;
+        }
+        self
+    }
+}
+
 /// Configuration for an audio stream.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ResolvedStreamConfig {
