@@ -6,7 +6,7 @@ mod util;
 #[cfg(os_coreaudio)]
 fn main() -> anyhow::Result<()> {
     use interflow::backends::coreaudio::CoreAudioDriver;
-    use interflow::channel_map::{ChannelMap32, CreateBitset};
+    use interflow::channel_map::CreateBitset;
     use interflow::prelude::*;
     use std::sync::{
         atomic::{AtomicBool, Ordering},
@@ -19,19 +19,23 @@ fn main() -> anyhow::Result<()> {
         sine_wave: SineWave,
     }
 
-    impl AudioOutputCallback for MyCallback {
-        fn on_output_data(&mut self, context: AudioCallbackContext, mut output: AudioOutput<f32>) {
+    impl AudioCallback for MyCallback {
+        fn prepare(&mut self, context: AudioCallbackContext) {
+            self.sine_wave.prepare(context);
+        }
+
+        fn process_audio(&mut self, _: AudioCallbackContext, _: AudioInput<f32>, mut output: AudioOutput<f32>) {
             if self.first_callback.swap(false, Ordering::SeqCst) {
                 println!(
                     "Actual buffer size granted by OS: {}",
-                    output.buffer.num_samples()
+                    output.buffer.num_frames()
                 );
             }
 
             for mut frame in output.buffer.as_interleaved_mut().rows_mut() {
                 let sample = self
                     .sine_wave
-                    .next_sample(context.stream_config.samplerate as f32);
+                    .next_sample();
                 for channel_sample in &mut frame {
                     *channel_sample = sample;
                 }
@@ -61,8 +65,9 @@ fn main() -> anyhow::Result<()> {
     println!("Requesting buffer size: {}", requested_buffer_size);
 
     let stream_config = StreamConfig {
-        samplerate: 48000.0,
-        channels: ChannelMap32::from_indices([0, 1]),
+        sample_rate: 48000.0,
+        input_channels: 0,
+        output_channels: 2,
         buffer_size_range: (Some(requested_buffer_size), Some(requested_buffer_size)),
         exclusive: false,
     };
@@ -72,7 +77,7 @@ fn main() -> anyhow::Result<()> {
         sine_wave: SineWave::new(440.0),
     };
 
-    let stream = device.create_output_stream(stream_config, callback)?;
+    let stream = device.create_stream(stream_config, callback)?;
 
     println!("Playing sine wave... Press enter to stop.");
     std::io::stdin().read_line(&mut String::new())?;

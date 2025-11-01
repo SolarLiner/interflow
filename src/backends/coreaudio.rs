@@ -305,7 +305,7 @@ impl AudioDevice for CoreAudioDevice {
                         sample_rate,
                         input_channels,
                         output_channels,
-                        buffer_size_range,
+                        buffer_size_range: self.buffer_size_range().unwrap_or((None, None)),
                         exclusive,
                     }
                 })

@@ -279,8 +279,6 @@ impl<Callback: AudioCallback> AudioCallback for DuplexCallback<Callback> {
 ///
 /// let input_device = default_input_device();
 /// let output_device = default_output_device();
-/// let input_config = input_device.default_input_config().unwrap();
-/// let output_config = output_device.default_output_config().unwrap();
 ///
 /// struct MyCallback;
 ///
@@ -428,8 +426,6 @@ pub type DuplexStreamResult<In, Out, Callback> = Result<
 ///
 /// let input_device = default_input_device();
 /// let output_device = default_output_device();
-/// let input_config = input_device.default_input_config().unwrap();
-/// let output_config = output_device.default_output_config().unwrap();
 ///
 /// let callback = MyCallback::new();
 ///
