@@ -44,7 +44,7 @@ bitflags! {
 /// while others work in exclusive mode.
 pub trait AudioDriver {
     /// Type of errors that can happen when using this audio driver.
-    type Error: SendEverywhereButOnWeb + std::error::Error;
+    type Error: Send + std::error::Error;
     /// Type of audio devices this driver provides.
     type Device: AudioDevice;
 
@@ -148,7 +148,7 @@ pub trait AudioDevice {
     type StreamHandle<Callback: AudioCallback>: AudioStreamHandle<Callback>;
 
     /// Type of errors that can happen when using this device.
-    type Error: SendEverywhereButOnWeb + std::error::Error;
+    type Error: Send + std::error::Error;
 
     /// Device display name
     fn name(&self) -> Cow<'_, str>;
@@ -180,7 +180,7 @@ pub trait AudioDevice {
     ///
     /// An output callback is required to process the audio, whose ownership will be transferred
     /// to the audio stream.
-    fn create_stream<Callback: SendEverywhereButOnWeb + AudioCallback>(
+    fn create_stream<Callback: 'static + Send + AudioCallback>(
         &self,
         stream_config: StreamConfig,
         callback: Callback,
@@ -191,35 +191,14 @@ pub trait AudioDevice {
     /// # Arguments
     ///
     /// - `callback`: Output callback to generate audio data with.
-    fn default_stream<Callback: SendEverywhereButOnWeb + AudioCallback>(
+    fn default_stream<Callback: 'static + Send + AudioCallback>(
         &self,
+        requested_type: DeviceType,
         callback: Callback,
     ) -> Result<Self::StreamHandle<Callback>, Self::Error> {
-        self.create_stream(self.default_config()?, callback)
+        self.create_stream(self.default_config()?.restrict(requested_type), callback)
     }
 }
-
-/// Marker trait for values which are [`Send`] everywhere but on the web (as WASM does not yet have
-/// web targets).
-///
-/// This should only be used to define the traits and should not be relied upon in external code.
-///
-/// This definition is selected on non-web platforms and does require [`Send`].
-#[cfg(not(wasm))]
-pub trait SendEverywhereButOnWeb: 'static + Send {}
-#[cfg(not(wasm))]
-impl<T: 'static + Send> SendEverywhereButOnWeb for T {}
-
-/// Marker trait for values which are [Send] everywhere but on the web (as WASM does not yet have
-/// web targets.
-///
-/// This should only be used to define the traits and should not be relied upon in external code.
-///
-/// This definition is selected on web platforms and does not require [`Send`].
-#[cfg(wasm)]
-pub trait SendEverywhereButOnWeb {}
-#[cfg(wasm)]
-impl<T> SendEverywhereButOnWeb for T {}
 
 #[duplicate::duplicate_item(
     name            bufty;
@@ -252,7 +231,7 @@ pub struct AudioCallbackContext {
 /// Trait for types which handles an audio stream (input or output).
 pub trait AudioStreamHandle<Callback> {
     /// Type of errors which have caused the stream to fail.
-    type Error: SendEverywhereButOnWeb + std::error::Error;
+    type Error: Send + std::error::Error;
 
     /// Eject the stream, returning ownership of the callback.
     ///
@@ -263,7 +242,7 @@ pub trait AudioStreamHandle<Callback> {
 
 /// Trait of types which process audio data. This is the trait that users will want to
 /// implement when processing audio from a device.
-pub trait AudioCallback: SendEverywhereButOnWeb {
+pub trait AudioCallback: Send {
     /// Prepare the audio callback to process audio. This function is *not* real-time safe (i.e., allocations can be
     /// performed), in preparation for processing the stream with [`Self::process_audio`].
     fn prepare(&mut self, context: AudioCallbackContext);

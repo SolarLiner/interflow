@@ -446,7 +446,7 @@ pub type DuplexStreamResult<In, Out, Callback> = Result<
 pub fn create_duplex_stream<
     InputDevice: AudioDevice,
     OutputDevice: AudioDevice,
-    Callback: AudioCallback,
+    Callback: 'static + AudioCallback,
 >(
     input_device: InputDevice,
     output_device: OutputDevice,

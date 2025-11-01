@@ -1,7 +1,7 @@
 use crate::backends::alsa::stream::AlsaStream;
 use crate::backends::alsa::AlsaError;
 use crate::{
-    AudioCallback, AudioDevice, Channel, DeviceType, SendEverywhereButOnWeb, StreamConfig,
+    AudioCallback, AudioDevice, Channel, DeviceType, StreamConfig,
 };
 use alsa::{pcm, Direction, PCM};
 use std::borrow::Cow;
@@ -89,7 +89,7 @@ impl AudioDevice for AlsaDevice {
         None::<[StreamConfig; 0]>
     }
 
-    fn create_stream<Callback: SendEverywhereButOnWeb + AudioCallback>(
+    fn create_stream<Callback: Send + AudioCallback>(
         &self,
         stream_config: StreamConfig,
         callback: Callback,
@@ -233,7 +233,7 @@ impl AudioDevice for AlsaDuplex {
         None::<[StreamConfig; 0]>
     }
 
-    fn create_stream<Callback: SendEverywhereButOnWeb + AudioCallback>(
+    fn create_stream<Callback: Send + AudioCallback>(
         &self,
         stream_config: StreamConfig,
         callback: Callback,

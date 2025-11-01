@@ -1,7 +1,7 @@
 use super::stream::StreamHandle;
 use crate::backends::pipewire::error::PipewireError;
 use crate::{
-    AudioCallback, AudioDevice, Channel, DeviceType, SendEverywhereButOnWeb, StreamConfig,
+    AudioCallback, AudioDevice, Channel, DeviceType, StreamConfig,
 };
 use pipewire::context::Context;
 use pipewire::main_loop::MainLoop;
@@ -81,7 +81,7 @@ impl AudioDevice for PipewireDevice {
         })
     }
 
-    fn create_stream<Callback: SendEverywhereButOnWeb + AudioCallback>(
+    fn create_stream<Callback: Send + AudioCallback>(
         &self,
         stream_config: StreamConfig,
         callback: Callback,
