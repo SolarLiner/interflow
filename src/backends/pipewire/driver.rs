@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::marker::PhantomData;
 
 pub struct PipewireDriver {
+    // Needed to make this type unable to be constructed directly
     __init: PhantomData<()>,
 }
 

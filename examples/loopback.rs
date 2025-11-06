@@ -10,14 +10,16 @@ fn main() -> Result<()> {
 
     let input = default_input_device();
     let output = default_output_device();
-    let mut input_config = input.default_input_config().unwrap();
-    input_config.buffer_size_range = (Some(128), Some(512));
-    let mut output_config = output.default_output_config().unwrap();
-    output_config.buffer_size_range = (Some(128), Some(512));
-    input_config.channels = 0b01;
-    output_config.channels = 0b11;
+    log::info!("Opening input : {}", input.name());
+    log::info!("Opening output: {}", output.name());
+    let config = StreamConfig {
+        buffer_size_range: (Some(128), Some(512)),
+        input_channels: 1,
+        output_channels: 1,
+        ..output.default_config().unwrap()
+    };
     let value = Arc::new(AtomicF32::new(0.));
-    let config = DuplexStreamConfig::new(input_config, output_config);
+    let config = DuplexStreamConfig::new(config);
     let stream =
         create_duplex_stream(input, output, Loopback::new(44100., value.clone()), config).unwrap();
     util::display_peakmeter(value)?;
@@ -39,15 +41,16 @@ impl Loopback {
     }
 }
 
-impl AudioDuplexCallback for Loopback {
-    fn on_audio_data(
+impl AudioCallback for Loopback {
+    fn prepare(&mut self, context: AudioCallbackContext) {}
+    fn process_audio(
         &mut self,
         context: AudioCallbackContext,
         input: AudioInput<f32>,
         mut output: AudioOutput<f32>,
     ) {
         self.meter
-            .set_samplerate(context.stream_config.samplerate as f32);
+            .set_samplerate(context.stream_config.sample_rate as f32);
         let rms = self.meter.process_buffer(input.buffer.as_ref());
         self.value.store(rms, std::sync::atomic::Ordering::Relaxed);
         output.buffer.as_interleaved_mut().fill(0.0);

@@ -3,8 +3,8 @@ use crate::backends::wasapi::stream::WasapiStream;
 use crate::channel_map::Bitset;
 use crate::prelude::wasapi::util::WasapiMMDevice;
 use crate::{
-    AudioDevice, AudioInputCallback, AudioInputDevice, AudioOutputCallback, AudioOutputDevice,
-    Channel, DeviceType, StreamConfig,
+    AudioCallback, AudioDevice, AudioInputDevice, AudioOutputCallback, AudioOutputDevice, Channel,
+    DeviceType, StreamConfig,
 };
 use std::borrow::Cow;
 use windows::Win32::Media::Audio;
@@ -57,7 +57,7 @@ impl AudioDevice for WasapiDevice {
 }
 
 impl AudioInputDevice for WasapiDevice {
-    type StreamHandle<Callback: AudioInputCallback> = WasapiStream<Callback>;
+    type StreamHandle<Callback: AudioCallback> = WasapiStream<Callback>;
 
     fn default_input_config(&self) -> Result<StreamConfig, Self::Error> {
         let audio_client = self.device.activate::<Audio::IAudioClient>()?;
@@ -66,14 +66,14 @@ impl AudioInputDevice for WasapiDevice {
             .map(|i| i as usize)
             .ok();
         Ok(StreamConfig {
-            channels: 0u32.with_indices(0..format.nChannels as _),
+            output_channels: 0u32.with_indices(0..format.nChannels as _),
             exclusive: false,
             samplerate: format.nSamplesPerSec as _,
             buffer_size_range: (frame_size, frame_size),
         })
     }
 
-    fn create_input_stream<Callback: 'static + Send + AudioInputCallback>(
+    fn create_input_stream<Callback: 'static + Send + AudioCallback>(
         &self,
         stream_config: StreamConfig,
         callback: Callback,
@@ -96,7 +96,7 @@ impl AudioOutputDevice for WasapiDevice {
             .map(|i| i as usize)
             .ok();
         Ok(StreamConfig {
-            channels: 0u32.with_indices(0..format.nChannels as _),
+            output_channels: 0u32.with_indices(0..format.nChannels as _),
             exclusive: false,
             samplerate: format.nSamplesPerSec as _,
             buffer_size_range: (frame_size, frame_size),
