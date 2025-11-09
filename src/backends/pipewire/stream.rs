@@ -24,14 +24,12 @@ use std::fmt::Formatter;
 use std::thread::JoinHandle;
 
 enum StreamCommands<Callback> {
-    ReceiveCallback(Callback),
     Eject(oneshot::Sender<Callback>),
 }
 
 impl<Callback> fmt::Debug for StreamCommands<Callback> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Self::ReceiveCallback(_) => write!(f, "ReceiveCallback"),
             Self::Eject(_) => write!(f, "Eject"),
         }
     }
@@ -50,10 +48,6 @@ impl<Callback> StreamInner<Callback> {
     fn handle_command(&mut self, command: StreamCommands<Callback>) {
         log::debug!("Handling command: {command:?}");
         match command {
-            StreamCommands::ReceiveCallback(callback) => {
-                debug_assert!(self.callback.is_none());
-                self.callback = Some(callback);
-            }
             StreamCommands::Eject(reply) => {
                 if let Some(callback) = self.callback.take() {
                     reply.send(callback).unwrap();
@@ -158,7 +152,7 @@ impl<Callback: 'static + Send> StreamHandle<Callback> {
             + Send
             + 'static,
     ) -> Result<Self, PipewireError> {
-        let (mut tx, rx) = rtrb::RingBuffer::new(16);
+        let (tx, rx) = rtrb::RingBuffer::new(16);
         let handle = std::thread::spawn(move || {
             let main_loop = MainLoop::new(None)?;
             let context = Context::new(&main_loop)?;
@@ -187,7 +181,7 @@ impl<Callback: 'static + Send> StreamHandle<Callback> {
             config.samplerate = config.samplerate.round();
             let _listener = stream
                 .add_local_listener_with_user_data(StreamInner {
-                    callback: None,
+                    callback: Some(callback),
                     commands: rx,
                     scratch_buffer: vec![0.0; MAX_FRAMES * channels].into_boxed_slice(),
                     loop_ref: main_loop.downgrade(),
@@ -242,8 +236,6 @@ impl<Callback: 'static + Send> StreamHandle<Callback> {
             main_loop.run();
             Ok::<_, PipewireError>(())
         });
-        log::debug!("Sending callback to stream");
-        tx.push(StreamCommands::ReceiveCallback(callback)).unwrap();
         Ok(Self {
             commands: tx,
             handle,
