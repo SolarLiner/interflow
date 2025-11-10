@@ -5,7 +5,9 @@ use pipewire::context::Context;
 use pipewire::main_loop::MainLoop;
 use pipewire::registry::GlobalObject;
 use std::cell::{Cell, RefCell};
+use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
+use std::sync::mpsc;
 
 fn get_device_type(object: &GlobalObject<&DictRef>) -> Option<DeviceType> {
     fn is_input(media_class: &str) -> bool {
@@ -88,4 +90,71 @@ pub fn get_devices() -> Result<Vec<(u32, DeviceType, String)>, PipewireError> {
     drop(_listener_core);
     drop(_listener_reg);
     Ok(Rc::into_inner(data).unwrap().into_inner())
+}
+
+/// A little helper that holds user's callback and sends it out using a channel when it goes out of
+/// scope. Dereferences to `Callback`, including mutably.
+pub(super) struct CallbackHolder<Callback> {
+    /// Invariant: `callback` is always `Some`, except in the second half of the [`Drop`] impl.
+    callback: Option<Callback>,
+    tx: mpsc::SyncSender<Callback>,
+}
+
+impl<Callback> CallbackHolder<Callback> {
+    /// Returns a pair (self, rx), where `rx` should be used to fetch the callback when the holder
+    /// goes out of scope.
+    pub(super) fn new(callback: Callback) -> (Self, mpsc::Receiver<Callback>) {
+        // Our first choice would be and `rtrb` channel, but that doesn't allow receiver to wait
+        // for a message, which we need. It doesn't matter, we use a channel of capacity 1 and
+        // we only use it exactly once, it never blocks in this case.
+        let (tx, rx) = mpsc::sync_channel(1);
+        let myself = Self {
+            callback: Some(callback),
+            tx,
+        };
+        (myself, rx)
+    }
+}
+
+impl<Callback> Deref for CallbackHolder<Callback> {
+    type Target = Callback;
+
+    fn deref(&self) -> &Callback {
+        self.callback
+            .as_ref()
+            .expect("never None outside destructor")
+    }
+}
+
+impl<Callback> DerefMut for CallbackHolder<Callback> {
+    fn deref_mut(&mut self) -> &mut Callback {
+        self.callback
+            .as_mut()
+            .expect("never None outside destructor")
+    }
+}
+
+impl<Callback> Drop for CallbackHolder<Callback> {
+    fn drop(&mut self) {
+        let callback = self.callback.take().expect("never None outside destructor");
+        match self.tx.try_send(callback) {
+            Ok(()) => (),
+            Err(mpsc::TrySendError::Full(_)) => {
+                panic!("The channel in CallbackHolder should be never full")
+            }
+            Err(mpsc::TrySendError::Disconnected(_)) => log::warn!(
+                "Channel in CallbackHolder is disconnected, did PipeWire main loop already exit?"
+            ),
+        }
+    }
+}
+
+/// Allows you to send to value to a black hole. It keeps at alive as long as it is in scope, but
+/// you cannot get the value back in any way.
+pub struct BlackHole<T>(T);
+
+impl<T> BlackHole<T> {
+    pub fn new(wrapped: T) -> Self {
+        Self(wrapped)
+    }
 }
