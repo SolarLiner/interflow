@@ -60,8 +60,10 @@ impl<Callback: 'static + Send> AlsaStream<Callback> {
                     buf
                 };
                 let (hwp, _, io) = device.apply_config(&stream_config)?;
-                let (_, period_size) = device.pcm.get_params()?;
+                let (buffer_size, period_size) = device.pcm.get_params()?;
+                let buffer_size = buffer_size as usize;
                 let period_size = period_size as usize;
+                log::info!("Buffer size : {buffer_size}");
                 log::info!("Period size : {period_size}");
                 let num_channels = hwp.get_channels()? as usize;
                 log::info!("Num channels: {num_channels}");
@@ -71,7 +73,7 @@ impl<Callback: 'static + Send> AlsaStream<Callback> {
                     samplerate,
                     channels: ChannelMap32::default()
                         .with_indices(std::iter::repeat(1).take(num_channels)),
-                    buffer_size_range: (Some(period_size), Some(period_size)),
+                    buffer_size_range: (Some(buffer_size), Some(buffer_size)),
                     exclusive: false,
                 };
                 let mut timestamp = Timestamp::new(samplerate);
