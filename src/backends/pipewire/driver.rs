@@ -1,3 +1,5 @@
+//! PipeWire driver abstraction.
+
 use super::error::PipewireError;
 use crate::backends::pipewire::device::PipewireDevice;
 use crate::backends::pipewire::utils;
@@ -6,6 +8,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::marker::PhantomData;
 
+/// The Interflow PipeWire backend driver.
 pub struct PipewireDriver {
     __init: PhantomData<()>,
 }
