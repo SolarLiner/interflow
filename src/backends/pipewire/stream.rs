@@ -15,62 +15,36 @@ use libspa::utils::Direction;
 use libspa_sys::{SPA_PARAM_EnumFormat, SPA_TYPE_OBJECT_Format};
 use pipewire::context::Context;
 use pipewire::keys;
-use pipewire::main_loop::{MainLoop, WeakMainLoop};
+use pipewire::main_loop::MainLoop;
 use pipewire::properties::Properties;
 use pipewire::stream::{Stream, StreamFlags};
 use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Formatter;
+use std::ops::DerefMut;
+use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 
 enum StreamCommands<Callback> {
-    ReceiveCallback(Callback),
     Eject(oneshot::Sender<Callback>),
 }
 
 impl<Callback> fmt::Debug for StreamCommands<Callback> {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Self::ReceiveCallback(_) => write!(f, "ReceiveCallback"),
             Self::Eject(_) => write!(f, "Eject"),
         }
     }
 }
 
 struct StreamInner<Callback> {
-    commands: rtrb::Consumer<StreamCommands<Callback>>,
     scratch_buffer: Box<[f32]>,
     callback: Option<Callback>,
     config: StreamConfig,
     timestamp: Timestamp,
-    loop_ref: WeakMainLoop,
 }
 
 impl<Callback> StreamInner<Callback> {
-    fn handle_command(&mut self, command: StreamCommands<Callback>) {
-        log::debug!("Handling command: {command:?}");
-        match command {
-            StreamCommands::ReceiveCallback(callback) => {
-                debug_assert!(self.callback.is_none());
-                self.callback = Some(callback);
-            }
-            StreamCommands::Eject(reply) => {
-                if let Some(callback) = self.callback.take() {
-                    reply.send(callback).unwrap();
-                    if let Some(loop_ref) = self.loop_ref.upgrade() {
-                        loop_ref.quit();
-                    }
-                }
-            }
-        }
-    }
-
-    fn handle_commands(&mut self) {
-        while let Ok(command) = self.commands.pop() {
-            self.handle_command(command);
-        }
-    }
-
     fn ejected(&self) -> bool {
         self.callback.is_none()
     }
@@ -128,19 +102,19 @@ impl<Callback: AudioInputCallback> StreamInner<Callback> {
 
 /// PipeWire stream handle.
 pub struct StreamHandle<Callback> {
-    commands: rtrb::Producer<StreamCommands<Callback>>,
+    commands: pipewire::channel::Sender<StreamCommands<Callback>>,
     handle: JoinHandle<Result<(), PipewireError>>,
 }
 
 impl<Callback> AudioStreamHandle<Callback> for StreamHandle<Callback> {
     type Error = PipewireError;
 
-    fn eject(mut self) -> Result<Callback, Self::Error> {
+    fn eject(self) -> Result<Callback, Self::Error> {
         log::info!("Ejecting stream");
         let (tx, rx) = oneshot::channel();
         self.commands
-            .push(StreamCommands::Eject(tx))
-            .expect("Command buffer overflow");
+            .send(StreamCommands::Eject(tx))
+            .expect("Should be able to send a message through PipeWire channel");
         self.handle.join().unwrap()?;
         Ok(rx.recv().unwrap())
     }
@@ -158,7 +132,10 @@ impl<Callback: 'static + Send> StreamHandle<Callback> {
             + Send
             + 'static,
     ) -> Result<Self, PipewireError> {
-        let (mut tx, rx) = rtrb::RingBuffer::new(16);
+        // Create a channel for sending command into PipeWire main loop.
+        let (pipewire_sender, pipewire_receiver) =
+            pipewire::channel::channel::<StreamCommands<Callback>>();
+
         let handle = std::thread::spawn(move || {
             let main_loop = MainLoop::new(None)?;
             let context = Context::new(&main_loop)?;
@@ -183,23 +160,34 @@ impl<Callback: 'static + Send> StreamHandle<Callback> {
                 properties.insert(*keys::TARGET_OBJECT, device_object_serial);
             }
 
+            let stream_inner = StreamInner {
+                callback: Some(callback),
+                scratch_buffer: vec![0.0; MAX_FRAMES * channels].into_boxed_slice(),
+                config,
+                timestamp: Timestamp::new(config.samplerate),
+            };
+            // Wrap stream inner data in Arc and Mutex so that it can be accessed by both the
+            // (audio) process callback (running in a separate realtime thread) and PipeWire main
+            // loop. We never _wait_ on the mutex in the process callback, so it never stalls it.
+            let stream_inner = Arc::new(Mutex::new(stream_inner));
+
             let stream = Stream::new(&core, &name, properties)?;
             config.samplerate = config.samplerate.round();
             let _listener = stream
-                .add_local_listener_with_user_data(StreamInner {
-                    callback: None,
-                    commands: rx,
-                    scratch_buffer: vec![0.0; MAX_FRAMES * channels].into_boxed_slice(),
-                    loop_ref: main_loop.downgrade(),
-                    config,
-                    timestamp: Timestamp::new(config.samplerate),
-                })
+                .add_local_listener_with_user_data(Arc::clone(&stream_inner))
                 .process(move |stream, inner| {
                     log::debug!("Processing stream");
-                    inner.handle_commands();
+
+                    // If we cannot lock the stream inner data, it means that it is being ejected in
+                    // the PipeWire main loop right now. Note that try_lock() never blocks.
+                    let Ok(mut inner) = inner.try_lock() else {
+                        return;
+                    };
+
                     if inner.ejected() {
                         return;
                     }
+
                     if let Some(mut buffer) = stream.dequeue_buffer() {
                         let datas = buffer.datas_mut();
                         log::debug!("Datas: len={}", datas.len());
@@ -209,7 +197,7 @@ impl<Callback: 'static + Send> StreamHandle<Callback> {
                             return;
                         };
 
-                        process_frames(datas, inner, channels);
+                        process_frames(datas, inner.deref_mut(), channels);
                     } else {
                         log::warn!("No buffer available");
                     }
@@ -238,14 +226,30 @@ impl<Callback: 'static + Send> StreamHandle<Callback> {
                 StreamFlags::AUTOCONNECT | StreamFlags::MAP_BUFFERS | StreamFlags::RT_PROCESS,
                 &mut params,
             )?;
+
+            // Handle commands (stream ejection). Runs in the PipeWire main loop.
+            let loop_ref = main_loop.downgrade();
+            let _attached_receiver = pipewire_receiver.attach(main_loop.loop_(), move |command| {
+                log::debug!("Handling command: {command:?}");
+                match command {
+                    StreamCommands::Eject(reply) => {
+                        let mut inner = stream_inner.lock().expect("Mutex should not be poisoned");
+                        if let Some(callback) = inner.callback.take() {
+                            reply.send(callback).unwrap();
+                            if let Some(loop_ref) = loop_ref.upgrade() {
+                                loop_ref.quit();
+                            }
+                        }
+                    }
+                }
+            });
+
             log::debug!("Starting Pipewire main loop");
             main_loop.run();
             Ok::<_, PipewireError>(())
         });
-        log::debug!("Sending callback to stream");
-        tx.push(StreamCommands::ReceiveCallback(callback)).unwrap();
         Ok(Self {
-            commands: tx,
+            commands: pipewire_sender,
             handle,
         })
     }
