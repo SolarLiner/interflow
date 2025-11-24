@@ -14,7 +14,7 @@ ndarray = "0.16.1"
 oneshot = "0.1.11"
 rtrb = "0.3.2"
 thiserror = "2.0.17"
-zerocopy = { version = "0.8.27", optional = true }
+zerocopy = { version = "0.8.28", optional = true }
 
 [dev-dependencies]
 anyhow = "1.0.100"
