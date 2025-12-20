@@ -1,17 +1,18 @@
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
-use bitflags::bitflags;
-use std::borrow::Cow;
 use crate::audio_buffer::{AudioMut, AudioRef};
 use crate::channel_map::ChannelMap32;
 use crate::timestamp::Timestamp;
+use bitflags::bitflags;
+use std::borrow::Cow;
 
 pub mod audio_buffer;
 pub mod backends;
 pub mod channel_map;
 pub mod duplex;
 pub mod prelude;
+mod sample;
 pub mod timestamp;
 
 bitflags! {
@@ -225,7 +226,12 @@ pub trait AudioDevice {
         requested_type: DeviceType,
         callback: Callback,
     ) -> Result<Self::StreamHandle<Callback>, Self::Error> {
-        self.create_stream(self.default_config()?.restrict(requested_type), callback)
+        let config = self.default_config()?.restrict(requested_type);
+        debug_assert!(
+            self.is_config_supported(&config),
+            "Default configuration is not supported"
+        );
+        self.create_stream(config, callback)
     }
 }
 

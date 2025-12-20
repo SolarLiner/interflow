@@ -1,12 +1,14 @@
 use crate::prelude::wasapi::error;
 use std::ffi::OsString;
 use std::marker::PhantomData;
+use std::ops;
 use std::os::windows::ffi::OsStringExt;
-use windows::core::Interface;
+use std::ptr::{self, NonNull};
+use windows::core::{Interface, HRESULT};
 use windows::Win32::Devices::Properties;
 use windows::Win32::Foundation::RPC_E_CHANGED_MODE;
 use windows::Win32::Media::Audio;
-use windows::Win32::System::Com;
+use windows::Win32::System::Com::{self, CoTaskMemFree};
 use windows::Win32::System::Com::{
     CoInitializeEx, CoUninitialize, StructuredStorage, COINIT_APARTMENTTHREADED, STGM_READ,
 };
@@ -128,5 +130,45 @@ fn get_device_name(device: &Audio::IMMDevice) -> Option<String> {
         StructuredStorage::PropVariantClear(&mut property_value).ok()?;
 
         Some(name)
+    }
+}
+
+#[repr(transparent)]
+pub(super) struct CoTaskOwned<T> {
+    ptr: ptr::NonNull<T>,
+}
+
+impl<T> ops::Deref for CoTaskOwned<T> {
+    type Target = ptr::NonNull<T>;
+    fn deref(&self) -> &Self::Target {
+        &self.ptr
+    }
+}
+
+impl<T> ops::DerefMut for CoTaskOwned<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.ptr
+    }
+}
+
+impl<T> Drop for CoTaskOwned<T> {
+    fn drop(&mut self) {
+        unsafe {
+            CoTaskMemFree(Some(self.ptr.as_ptr().cast()));
+        }
+    }
+}
+
+impl<T> CoTaskOwned<T> {
+    pub(super) const unsafe fn new(ptr: NonNull<T>) -> Self {
+        Self { ptr }
+    }
+
+    pub(super) unsafe fn construct(func: impl FnOnce(*mut *mut T) -> bool) -> Option<Self> {
+        let mut ptr = ptr::null_mut();
+        if !func(&mut ptr) {
+            return None;
+        }
+        ptr::NonNull::new(ptr).map(|ptr| Self { ptr })
     }
 }
