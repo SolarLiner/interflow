@@ -81,7 +81,7 @@ pub trait ExtensionProvider: 'static {
     /// Register on-demand types. Note that the implementation details around registering extensions mean that this
     /// function will be called for every request. Runtime checks are expected, but this function should remain as fast
     /// as possible.
-    fn register(&self, selector: &mut Selector<'_>) -> &mut Selector<'_>;
+    fn register<'a, 'sel>(&'a self, selector: &'sel mut Selector<'a>) -> &'sel mut Selector<'a>;
 }
 
 const _EXTENSION_TRAIT_ASSERTS: () = {
@@ -92,9 +92,9 @@ const _EXTENSION_TRAIT_ASSERTS: () = {
 /// Additional extensions for [`ExtensionProvider`] objects.
 pub trait ExtensionProviderExt: ExtensionProvider {
     /// Look up [`T`] from the extension if it is registered.
-    fn lookup<'a, T: 'static + ?Sized>(&self) -> Option<&'a T> {
+    fn lookup<T: 'static + ?Sized>(&self) -> Option<&T> {
         let mut selector = Selector::new::<T>();
-        self.register(&mut selector);
+        { self.register(&mut selector); }
         selector.finish::<T>()
     }
 }

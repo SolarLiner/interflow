@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-bitflags = "2.10.0"
-duplicate = "2.0.1"
-thiserror = "2.0.18"
+bitflags.workspace = true
+duplicate.workspace = true
+thiserror.workspace = true
 zerocopy = { version = "0.8.39", features = ["alloc"] }

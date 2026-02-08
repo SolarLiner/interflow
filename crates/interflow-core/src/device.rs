@@ -4,7 +4,7 @@ use crate::stream::{self, StreamHandle};
 use crate::traits::ExtensionProvider;
 
 /// Configuration for an audio stream.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct StreamConfig {
     /// Configured sample rate of the requested stream. The opened stream can have a different
     /// sample rate, so don't rely on this parameter being correct at runtime.
@@ -132,4 +132,8 @@ pub trait NamedChannels {
 
 pub trait ConfigurationList {
     fn enumerate_configurations(&self) -> impl Iterator<Item = StreamConfig>;
+}
+
+pub trait DeviceState {
+    fn connected(&self) -> bool;
 }

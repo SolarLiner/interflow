@@ -1,10 +1,10 @@
-mod platform;
-mod traits;
-mod device;
-mod stream;
-mod proxies;
-mod timing;
-mod buffer;
+pub mod platform;
+pub mod traits;
+pub mod device;
+pub mod stream;
+pub mod proxies;
+pub mod timing;
+pub mod buffer;
 
 use bitflags::bitflags;
 
