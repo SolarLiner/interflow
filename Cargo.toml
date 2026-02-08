@@ -1,9 +1,19 @@
-[package]
-name = "interflow"
+[workspace]
+resolver = "3"
+members = ["crates/*", "."]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.85"
 license = "MIT"
+
+[package]
+name = "interflow"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
 
 [dependencies]
 bitflags = "2.10.0"
