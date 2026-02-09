@@ -18,7 +18,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libasound2-dev libspa-0.2-dev libpipewire-0.3-dev
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry/index/
@@ -26,7 +26,7 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: ${{ matrix.name }}-${{ matrix.cross-target }}
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Fetch all git history
         run: git fetch --force --prune --tags --unshallow
       - name: Set up Rust toolchain

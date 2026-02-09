@@ -1,3 +1,5 @@
+//! PipeWire streams.
+
 use crate::audio_buffer::{AudioMut, AudioRef};
 use crate::backends::pipewire::error::PipewireError;
 use crate::channel_map::Bitset;
@@ -124,6 +126,7 @@ impl<Callback: AudioInputCallback> StreamInner<Callback> {
     }
 }
 
+/// PipeWire stream handle.
 pub struct StreamHandle<Callback> {
     commands: rtrb::Producer<StreamCommands<Callback>>,
     handle: JoinHandle<Result<(), PipewireError>>,

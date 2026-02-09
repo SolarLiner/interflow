@@ -49,14 +49,14 @@ impl<Callback: 'static + Send> AlsaStream<Callback> {
                 let mut poll_descriptors = {
                     let mut buf = vec![rx.as_pollfd()];
                     let num_descriptors = device.pcm.count();
-                    buf.extend(
-                        std::iter::repeat(libc::pollfd {
+                    buf.extend(std::iter::repeat_n(
+                        libc::pollfd {
                             fd: 0,
                             events: 0,
                             revents: 0,
-                        })
-                        .take(num_descriptors),
-                    );
+                        },
+                        num_descriptors,
+                    ));
                     buf
                 };
                 let (hwp, _, io) = device.apply_config(&stream_config)?;
@@ -70,7 +70,7 @@ impl<Callback: 'static + Send> AlsaStream<Callback> {
                 let stream_config = StreamConfig {
                     samplerate,
                     channels: ChannelMap32::default()
-                        .with_indices(std::iter::repeat(1).take(num_channels)),
+                        .with_indices(std::iter::repeat_n(1, num_channels)),
                     buffer_size_range: (Some(period_size), Some(period_size)),
                     exclusive: false,
                 };
