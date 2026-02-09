@@ -55,6 +55,11 @@ windows = { version = "0.61.3", features = [
 ] }
 
 [[example]]
+name = "eject_stream_pipewire"
+path = "examples/eject_stream_pipewire.rs"
+required-features = ["pipewire"]
+
+[[example]]
 name = "enumerate_alsa"
 path = "examples/enumerate_alsa.rs"
 
