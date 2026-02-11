@@ -13,7 +13,7 @@ jobs:
   fmt:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - name: Install dependencies (Linux)
       run: sudo apt install libasound2-dev libspa-0.2-dev libpipewire-0.3-dev
     - name: Install Rust 1.88
@@ -31,7 +31,7 @@ jobs:
         os: [windows, ubuntu, macos]
     runs-on: ${{ matrix.os }}-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Install dependencies (Linux)
         if: ${{ matrix.os == 'ubuntu' }}
         run: sudo apt install libasound2-dev libspa-0.2-dev libpipewire-0.3-dev
@@ -61,7 +61,7 @@ jobs:
             feature-pipewire: true
     runs-on: ${{ matrix.os }}
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
     - name: Install dependencies (Linux)
       if: ${{ matrix.os == 'ubuntu-latest' }}
       run: sudo apt install libasound2-dev libspa-0.2-dev libpipewire-0.3-dev

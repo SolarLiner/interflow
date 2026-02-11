@@ -367,6 +367,8 @@ where
         Some(Self { storage })
     }
 
+    /// Create an audio buffer reference from non-interleaved data. This does *not* copy the data,
+    /// but creates a view over it, so that it can be accessed as any other audio buffer.
     pub fn from_noninterleaved(data: &'a [T], channels: usize) -> Option<Self> {
         let buffer_size = data.len() / channels;
         let storage = ArrayView2::from_shape((channels, buffer_size), data).ok()?;
@@ -389,6 +391,12 @@ impl<'a, T: 'a> AudioMut<'a, T> {
         Some(Self { storage })
     }
 
+    /// Create an audio buffer mutable reference from interleaved data. This does *not* copy the
+    /// data, but creates a view over it, so that it can be accessed as any other audio buffer.
+    ///
+    /// Writes to the resulting buffer directly map to the provided slice, and asking an
+    /// interleaved view out of the resulting buffer (with [`AudioBufferBase::as_interleaved`])
+    /// means the same slice is returned.
     pub fn from_noninterleaved_mut(data: &'a mut [T], channels: usize) -> Option<Self> {
         let buffer_size = data.len() / channels;
         let storage = ArrayViewMut2::from_shape((channels, buffer_size), data).ok()?;

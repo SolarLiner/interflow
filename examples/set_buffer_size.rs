@@ -24,7 +24,12 @@ fn main() -> anyhow::Result<()> {
             self.sine_wave.prepare(context);
         }
 
-        fn process_audio(&mut self, _: AudioCallbackContext, _: AudioInput<f32>, mut output: AudioOutput<f32>) {
+        fn process_audio(
+            &mut self,
+            _: AudioCallbackContext,
+            _: AudioInput<f32>,
+            mut output: AudioOutput<f32>,
+        ) {
             if self.first_callback.swap(false, Ordering::SeqCst) {
                 println!(
                     "Actual buffer size granted by OS: {}",
@@ -33,9 +38,7 @@ fn main() -> anyhow::Result<()> {
             }
 
             for mut frame in output.buffer.as_interleaved_mut().rows_mut() {
-                let sample = self
-                    .sine_wave
-                    .next_sample();
+                let sample = self.sine_wave.next_sample();
                 for channel_sample in &mut frame {
                     *channel_sample = sample;
                 }

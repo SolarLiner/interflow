@@ -1,8 +1,6 @@
 use crate::backends::alsa::stream::AlsaStream;
 use crate::backends::alsa::AlsaError;
-use crate::{
-    AudioCallback, AudioDevice, Channel, DeviceType, StreamConfig,
-};
+use crate::{AudioCallback, AudioDevice, Channel, DeviceType, StreamConfig};
 use alsa::{pcm, Direction, PCM};
 use std::borrow::Cow;
 use std::fmt;

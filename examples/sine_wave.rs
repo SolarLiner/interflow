@@ -9,7 +9,9 @@ fn main() -> Result<()> {
 
     let device = default_output_device();
     println!("Using device {}", device.name());
-    let stream = device.default_stream(DeviceType::OUTPUT, SineWave::new(440.0)).unwrap();
+    let stream = device
+        .default_stream(DeviceType::OUTPUT, SineWave::new(440.0))
+        .unwrap();
     println!("Press Enter to stop");
     std::io::stdin().read_line(&mut String::new())?;
     stream.eject().unwrap();

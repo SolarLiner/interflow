@@ -1,8 +1,8 @@
+//! PipeWire device abstraction.
+
 use super::stream::StreamHandle;
 use crate::backends::pipewire::error::PipewireError;
-use crate::{
-    AudioCallback, AudioDevice, Channel, DeviceType, StreamConfig,
-};
+use crate::{AudioCallback, AudioDevice, Channel, DeviceType, StreamConfig};
 use pipewire::context::Context;
 use pipewire::main_loop::MainLoop;
 use pipewire::properties::Properties;
@@ -11,15 +11,21 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 
+/// A device (like a sound card) in PipeWire.
 pub struct PipewireDevice {
     pub(super) target_node: Option<u32>,
+    /// Additive flags describing the device (input/output/...)
     pub device_type: DeviceType,
+    /// Serial number of the device node in the PipeWire graph.
     pub object_serial: Option<String>,
+    /// Name to be used for the next created stream.
     pub stream_name: Cow<'static, str>,
+    /// Properties for the next created stream.
     pub stream_properties: HashMap<Vec<u8>, Vec<u8>>,
 }
 
 impl PipewireDevice {
+    /// Get PipeWire properties of the PipeWire device node.
     pub fn properties(&self) -> Result<Option<Properties>, PipewireError> {
         let Some(node_id) = self.target_node else {
             return Ok(None);

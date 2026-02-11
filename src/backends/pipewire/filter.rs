@@ -13,12 +13,6 @@ impl Filter {
         let name = {
             let s = CString::new(name.as_ref());
         };
-        let filter = unsafe { pw_filter_new(core, )};
+        let filter = unsafe { pw_filter_new(core) };
     }
 }
-
-
-
-
-
-
