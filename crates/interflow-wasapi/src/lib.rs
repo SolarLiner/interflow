@@ -1,15 +1,15 @@
 pub mod device;
-mod util;
 mod stream;
+mod util;
 
-use std::sync::OnceLock;
+use crate::util::MMDevice;
 use bitflags::bitflags_match;
+use device::Device;
+use interflow_core::traits::{ExtensionProvider, Selector};
+use interflow_core::{platform, DeviceType};
+use std::sync::OnceLock;
 use windows::Win32::Media::Audio;
 use windows::Win32::System::Com;
-use device::Device;
-use interflow_core::{platform, DeviceType};
-use interflow_core::traits::{ExtensionProvider, Selector};
-use crate::util::MMDevice;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -48,7 +48,7 @@ impl platform::Platform for Platform {
         Ok(device)
     }
 
-    fn list_devices(&self) -> Result<impl IntoIterator<Item=Self::Device>, Self::Error> {
+    fn list_devices(&self) -> Result<impl IntoIterator<Item = Self::Device>, Self::Error> {
         audio_device_enumerator().get_device_list()
     }
 }
@@ -70,11 +70,13 @@ fn audio_device_enumerator() -> &'static AudioDeviceEnumerator {
         let com = util::com().unwrap();
 
         unsafe {
-            let enumerator = com.create_instance::<_, Audio::IMMDeviceEnumerator>(
-                &Audio::MMDeviceEnumerator,
-                None,
-                Com::CLSCTX_ALL,
-            ).unwrap();
+            let enumerator = com
+                .create_instance::<_, Audio::IMMDeviceEnumerator>(
+                    &Audio::MMDeviceEnumerator,
+                    None,
+                    Com::CLSCTX_ALL,
+                )
+                .unwrap();
 
             AudioDeviceEnumerator(enumerator)
         }
@@ -86,10 +88,7 @@ pub struct AudioDeviceEnumerator(Audio::IMMDeviceEnumerator);
 
 impl AudioDeviceEnumerator {
     // Returns the default output device.
-    fn get_default_device(
-        &self,
-        device_type: DeviceType,
-    ) -> Result<Option<Device>, Error> {
+    fn get_default_device(&self, device_type: DeviceType) -> Result<Option<Device>, Error> {
         let Some(flow) = bitflags_match!(device_type, {
             DeviceType::INPUT | DeviceType::PHYSICAL => Some(Audio::eCapture),
             DeviceType::OUTPUT | DeviceType::PHYSICAL => Some(Audio::eRender),
@@ -121,9 +120,7 @@ impl AudioDeviceEnumerator {
     }
 
     // Returns a chained iterator of output and input devices.
-    fn get_device_list(
-        &self,
-    ) -> Result<impl IntoIterator<Item = Device>, Error> {
+    fn get_device_list(&self) -> Result<impl IntoIterator<Item = Device>, Error> {
         // Create separate collections for output and input devices and then chain them.
         unsafe {
             let output_collection = self

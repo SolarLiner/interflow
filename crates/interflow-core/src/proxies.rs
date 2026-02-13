@@ -1,7 +1,7 @@
-use std::borrow::Cow;
 use crate::device::{Device, StreamConfig};
-use crate::DeviceType;
 use crate::traits::ExtensionProvider;
+use crate::DeviceType;
+use std::borrow::Cow;
 
 pub type Error = Box<dyn Send + Sync + std::error::Error>;
 
@@ -18,11 +18,11 @@ impl<D: Device> DeviceProxy for D {
     fn name(&self) -> Cow<'_, str> {
         Device::name(self)
     }
-    
+
     fn device_type(&self) -> DeviceType {
         Device::device_type(self)
     }
-    
+
     fn default_config(&self) -> Result<StreamConfig, Error> {
         Ok(Device::default_config(self)?)
     }
@@ -30,7 +30,7 @@ impl<D: Device> DeviceProxy for D {
     fn is_config_supported(&self, config: &StreamConfig) -> bool {
         Device::is_config_supported(self, config)
     }
-    
+
     fn buffer_size_range(&self) -> Result<(Option<usize>, Option<usize>), Error> {
         Ok(Device::buffer_size_range(self)?)
     }

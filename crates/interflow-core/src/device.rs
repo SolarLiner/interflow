@@ -1,7 +1,7 @@
-use std::borrow::Cow;
-use crate::DeviceType;
 use crate::stream::{self, StreamHandle};
 use crate::traits::ExtensionProvider;
+use crate::DeviceType;
+use std::borrow::Cow;
 
 /// Configuration for an audio stream.
 #[derive(Debug, Clone, PartialEq)]
@@ -68,9 +68,9 @@ pub struct ResolvedStreamConfig {
 pub trait Device: ExtensionProvider {
     type Error: Send + Sync + std::error::Error;
     type StreamHandle<Callback: stream::Callback>: StreamHandle<Callback, Error: Into<Self::Error>>;
-    
+
     fn name(&self) -> Cow<'_, str>;
-    
+
     fn device_type(&self) -> DeviceType;
 
     /// Default configuration for this device. If [`Ok`], should return a [`StreamConfig`] that is supported (i.e.,

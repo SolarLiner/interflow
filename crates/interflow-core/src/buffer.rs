@@ -277,7 +277,9 @@ impl<T> AudioBuffer<T> {
     }
 
     pub fn get_channels_mut<const N: usize>(&mut self, indices: [usize; N]) -> [&mut [T]; N] {
-        self.data.get_disjoint_mut(indices.map(|i| i * self.frames.get()..(i + 1) * self.frames.get())).unwrap()
+        self.data
+            .get_disjoint_mut(indices.map(|i| i * self.frames.get()..(i + 1) * self.frames.get()))
+            .unwrap()
     }
 }
 

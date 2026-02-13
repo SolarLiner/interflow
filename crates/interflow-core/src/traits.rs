@@ -38,9 +38,7 @@ impl ErasedPtr {
     unsafe fn as_ptr<T: ?Sized>(&self) -> *const T {
         // SAFETY: The constructor ensures that the first `size_of::<T>()`
         // bytes of `&self.value` are a valid `*const T` pointer.
-        unsafe {
-            core::mem::transmute_copy(&self.value)
-        }
+        unsafe { core::mem::transmute_copy(&self.value) }
     }
 }
 
@@ -94,7 +92,9 @@ pub trait ExtensionProviderExt: ExtensionProvider {
     /// Look up [`T`] from the extension if it is registered.
     fn lookup<T: 'static + ?Sized>(&self) -> Option<&T> {
         let mut selector = Selector::new::<T>();
-        { self.register(&mut selector); }
+        {
+            self.register(&mut selector);
+        }
         selector.finish::<T>()
     }
 }

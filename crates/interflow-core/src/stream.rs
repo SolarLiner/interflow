@@ -1,8 +1,8 @@
-use bitflags::bitflags;
 use crate::buffer::{AudioMut, AudioRef};
 use crate::device::ResolvedStreamConfig;
 use crate::timing::Timestamp;
 use crate::traits::ExtensionProvider;
+use bitflags::bitflags;
 
 pub trait StreamProxy: Send + Sync + ExtensionProvider {}
 

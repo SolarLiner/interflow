@@ -7,7 +7,10 @@ use std::sync::OnceLock;
 use windows::core::Interface;
 use windows::Win32::Devices::Properties;
 use windows::Win32::Media::Audio;
-use windows::Win32::System::Com::{self, CoTaskMemFree, CLSCTX, COINIT_MULTITHREADED, CoInitializeEx, CoUninitialize, StructuredStorage, STGM_READ};
+use windows::Win32::System::Com::{
+    self, CoInitializeEx, CoTaskMemFree, CoUninitialize, StructuredStorage, CLSCTX,
+    COINIT_MULTITHREADED, STGM_READ,
+};
 use windows::Win32::System::Variant::VT_LPWSTR;
 
 /// RAII object that guards the fact that COM is initialized.
