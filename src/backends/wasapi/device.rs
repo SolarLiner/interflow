@@ -1,11 +1,8 @@
 use super::{error, stream};
 use crate::backends::wasapi::stream::WasapiStream;
-use crate::channel_map::Bitset;
+use crate::prelude::wasapi::stream::{FindSupportedConfig, StreamDirection};
 use crate::prelude::wasapi::util::WasapiMMDevice;
-use crate::{
-    AudioDevice, AudioInputCallback, AudioInputDevice, AudioOutputCallback, AudioOutputDevice,
-    Channel, DeviceType, StreamConfig,
-};
+use crate::{AudioCallback, AudioDevice, Channel, DeviceType, StreamConfig};
 use std::borrow::Cow;
 use windows::Win32::Media::Audio;
 
@@ -27,6 +24,7 @@ impl WasapiDevice {
 
 impl AudioDevice for WasapiDevice {
     type Error = error::WasapiError;
+    type StreamHandle<Callback: AudioCallback> = WasapiStream<Callback>;
 
     fn name(&self) -> Cow<str> {
         match self.device.name() {
@@ -47,69 +45,50 @@ impl AudioDevice for WasapiDevice {
     }
 
     fn is_config_supported(&self, config: &StreamConfig) -> bool {
-        self.device_type.contains(DeviceType::OUTPUT)
-            && stream::is_output_config_supported(self.device.clone(), config)
+        if self.device_type.is_duplex() || !self.device_type.is_physical() {
+            return false;
+        }
+        FindSupportedConfig {
+            config,
+            device: &self.device,
+            is_output: self.device_type.is_output(),
+        }
+        .supported_config()
+        .is_some()
     }
 
     fn enumerate_configurations(&self) -> Option<impl IntoIterator<Item = StreamConfig>> {
         None::<[StreamConfig; 0]>
     }
-}
 
-impl AudioInputDevice for WasapiDevice {
-    type StreamHandle<Callback: AudioInputCallback> = WasapiStream<Callback>;
-
-    fn default_input_config(&self) -> Result<StreamConfig, Self::Error> {
+    fn default_config(&self) -> Result<StreamConfig, Self::Error> {
         let audio_client = self.device.activate::<Audio::IAudioClient>()?;
         let format = unsafe { audio_client.GetMixFormat()?.read_unaligned() };
         let frame_size = unsafe { audio_client.GetBufferSize() }
             .map(|i| i as usize)
             .ok();
+        let (input_channels, output_channels) = if self.device_type.is_input() {
+            (format.nChannels as _, 0)
+        } else {
+            (0, format.nChannels as _)
+        };
         Ok(StreamConfig {
-            channels: 0u32.with_indices(0..format.nChannels as _),
-            exclusive: false,
-            samplerate: format.nSamplesPerSec as _,
+            sample_rate: format.nSamplesPerSec as _,
+            input_channels,
+            output_channels,
             buffer_size_range: (frame_size, frame_size),
+            exclusive: false,
         })
     }
 
-    fn create_input_stream<Callback: 'static + Send + AudioInputCallback>(
+    fn create_stream<Callback: 'static + Send + AudioCallback>(
         &self,
         stream_config: StreamConfig,
         callback: Callback,
     ) -> Result<Self::StreamHandle<Callback>, Self::Error> {
-        Ok(WasapiStream::new_input(
+        Ok(WasapiStream::new(
             self.device.clone(),
-            stream_config,
-            callback,
-        ))
-    }
-}
-
-impl AudioOutputDevice for WasapiDevice {
-    type StreamHandle<Callback: AudioOutputCallback> = WasapiStream<Callback>;
-
-    fn default_output_config(&self) -> Result<StreamConfig, Self::Error> {
-        let audio_client = self.device.activate::<Audio::IAudioClient>()?;
-        let format = unsafe { audio_client.GetMixFormat()?.read_unaligned() };
-        let frame_size = unsafe { audio_client.GetBufferSize() }
-            .map(|i| i as usize)
-            .ok();
-        Ok(StreamConfig {
-            channels: 0u32.with_indices(0..format.nChannels as _),
-            exclusive: false,
-            samplerate: format.nSamplesPerSec as _,
-            buffer_size_range: (frame_size, frame_size),
-        })
-    }
-
-    fn create_output_stream<Callback: 'static + Send + AudioOutputCallback>(
-        &self,
-        stream_config: StreamConfig,
-        callback: Callback,
-    ) -> Result<Self::StreamHandle<Callback>, Self::Error> {
-        Ok(WasapiStream::new_output(
-            self.device.clone(),
+            StreamDirection::try_from(self.device_type)?,
             stream_config,
             callback,
         ))
@@ -117,7 +96,7 @@ impl AudioOutputDevice for WasapiDevice {
 }
 
 /// An iterable collection WASAPI devices.
-pub struct WasapiDeviceList {
+pub(crate) struct WasapiDeviceList {
     pub(crate) collection: Audio::IMMDeviceCollection,
     pub(crate) total_count: u32,
     pub(crate) next_item: u32,

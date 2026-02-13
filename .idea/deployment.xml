@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="PublishConfigData" remoteFilesAllowedToDisappearOnAutoupload="false">
+    <serverData>
+      <paths name="AstroLab DEAD (1fb9b0a5-2477-4039-8455-5b3eef1fdb05)">
+        <serverdata>
+          <mappings>
+            <mapping local="$PROJECT_DIR$/.." web="/" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="AstroLab VM (5092ffaa-1683-4c1c-82e3-b3f070a20511)">
+        <serverdata>
+          <mappings>
+            <mapping local="$PROJECT_DIR$/.." web="/" />
+          </mappings>
+        </serverdata>
+      </paths>
+    </serverData>
+  </component>
+</project>

@@ -1,11 +1,13 @@
 use super::error;
-use crate::audio_buffer::AudioMut;
 use crate::backends::wasapi::util::WasapiMMDevice;
 use crate::channel_map::Bitset;
-use crate::prelude::{AudioRef, Timestamp};
+use crate::prelude::wasapi::util::CoTaskOwned;
+use crate::prelude::{AudioRef, Timestamp, WasapiError};
+use crate::sample::ConvertSample;
+use crate::{audio_buffer::AudioMut, ResolvedStreamConfig};
 use crate::{
-    AudioCallbackContext, AudioInput, AudioInputCallback, AudioOutput, AudioOutputCallback,
-    AudioStreamHandle, StreamConfig,
+    AudioCallback, AudioCallbackContext, AudioInput, AudioOutput, AudioStreamHandle, DeviceType,
+    StreamConfig,
 };
 use duplicate::duplicate_item;
 use std::marker::PhantomData;
@@ -122,12 +124,14 @@ struct AudioThread<Callback, Interface> {
     audio_client: Audio::IAudioClient,
     interface: Interface,
     audio_clock: Audio::IAudioClock,
-    stream_config: StreamConfig,
+    stream_config: ResolvedStreamConfig,
     eject_signal: EjectSignal,
     frame_size: usize,
     callback: Callback,
     event_handle: HANDLE,
     clock_start: Duration,
+    convert_scratch_buffer: Box<[f32]>,
+    process_fn: fn(&mut Self) -> Result<(), error::WasapiError>,
 }
 
 impl<Callback, Interface> AudioThread<Callback, Interface> {
@@ -145,58 +149,46 @@ impl<Callback, Interface> AudioThread<Callback, Interface> {
 }
 
 impl<Callback, Iface: Interface> AudioThread<Callback, Iface> {
-    fn new(
+    fn new_with_process_fn(
         device: WasapiMMDevice,
+        direction: StreamDirection,
         eject_signal: EjectSignal,
-        mut stream_config: StreamConfig,
+        stream_config: StreamConfig,
         callback: Callback,
+        process_fn: impl FnOnce(SupportedConfig) -> fn(&mut Self) -> Result<(), error::WasapiError>,
     ) -> Result<Self, error::WasapiError> {
+        eprintln!("Current stream config: {stream_config:#?}");
+        let supported_config = FindSupportedConfig {
+            config: &stream_config,
+            device: &device,
+            is_output: matches!(direction, StreamDirection::Output),
+        }
+        .supported_config()
+        .ok_or(WasapiError::ConfigurationNotAvailable)?;
+        let frame_size = stream_config
+            .buffer_size_range
+            .0
+            .or(stream_config.buffer_size_range.1);
+        let buffer_duration = frame_size
+            .map(|frame_size| buffer_size_to_duration(frame_size, stream_config.sample_rate as _))
+            .unwrap_or(0);
         unsafe {
-            let audio_client: Audio::IAudioClient = device.activate()?;
-            let sharemode = if stream_config.exclusive {
-                Audio::AUDCLNT_SHAREMODE_EXCLUSIVE
-            } else {
-                Audio::AUDCLNT_SHAREMODE_SHARED
-            };
-            let format = {
-                let mut format = config_to_waveformatextensible(&stream_config);
-                let mut actual_format = ptr::null_mut();
-                audio_client
-                    .IsFormatSupported(
-                        sharemode,
-                        &format.Format,
-                        (!stream_config.exclusive).then_some(&mut actual_format),
-                    )
-                    .ok()?;
-                if !stream_config.exclusive {
-                    assert!(!actual_format.is_null());
-                    format.Format = actual_format.read_unaligned();
-                    CoTaskMemFree(actual_format.cast());
-                    let sample_rate = format.Format.nSamplesPerSec;
-                    stream_config.channels = 0u32.with_indices(0..format.Format.nChannels as _);
-                    stream_config.samplerate = sample_rate as _;
-                }
-                format
-            };
-            let frame_size = stream_config
-                .buffer_size_range
-                .0
-                .or(stream_config.buffer_size_range.1);
-            let buffer_duration = frame_size
-                .map(|frame_size| {
-                    buffer_size_to_duration(frame_size, stream_config.samplerate as _)
-                })
-                .unwrap_or(0);
+            let audio_client = device.activate::<Audio::IAudioClient>()?;
             audio_client.Initialize(
-                sharemode,
+                if stream_config.exclusive {
+                    Audio::AUDCLNT_SHAREMODE_EXCLUSIVE
+                } else {
+                    Audio::AUDCLNT_SHAREMODE_SHARED
+                },
                 Audio::AUDCLNT_STREAMFLAGS_EVENTCALLBACK
                     | Audio::AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM,
                 buffer_duration,
                 0,
-                &format.Format,
+                supported_config.format(),
                 None,
             )?;
             let buffer_size = audio_client.GetBufferSize()? as usize;
+            let resolved_config = supported_config.resolved_config(direction);
             let event_handle = {
                 let event_handle =
                     Threading::CreateEventA(None, false, false, windows::core::PCSTR(ptr::null()))?;
@@ -213,12 +205,15 @@ impl<Callback, Iface: Interface> AudioThread<Callback, Iface> {
                 event_handle,
                 frame_size,
                 eject_signal,
-                stream_config: StreamConfig {
-                    buffer_size_range: (Some(frame_size), Some(frame_size)),
-                    ..stream_config
-                },
+                stream_config: resolved_config,
                 clock_start: Duration::ZERO,
                 callback,
+                convert_scratch_buffer: if matches!(supported_config, SupportedConfig::Float(..)) {
+                    Box::new([])
+                } else {
+                    vec![0.0; resolved_config.max_frame_count].into_boxed_slice()
+                },
+                process_fn: process_fn(supported_config),
             })
         }
     }
@@ -240,13 +235,33 @@ impl<Callback, Iface: Interface> AudioThread<Callback, Iface> {
         let clock = stream_instant(&self.audio_clock)?;
         let diff = clock - self.clock_start;
         Ok(Timestamp::from_duration(
-            self.stream_config.samplerate,
+            self.stream_config.sample_rate,
             diff,
         ))
     }
 }
 
-impl<Callback: AudioInputCallback> AudioThread<Callback, Audio::IAudioCaptureClient> {
+impl<Callback: AudioCallback> AudioThread<Callback, Audio::IAudioCaptureClient> {
+    pub(super) fn new(
+        device: WasapiMMDevice,
+        eject_signal: EjectSignal,
+        stream_config: StreamConfig,
+        callback: Callback,
+    ) -> Result<Self, WasapiError> {
+        Self::new_with_process_fn(
+            device,
+            StreamDirection::Input,
+            eject_signal,
+            stream_config,
+            callback,
+            |config| match config {
+                SupportedConfig::Float(..) => Self::process_float,
+                SupportedConfig::I32(..) => Self::process::<i32>,
+                SupportedConfig::U32(..) => Self::process::<u32>,
+            },
+        )
+    }
+
     fn run(mut self) -> Result<Callback, error::WasapiError> {
         set_thread_priority();
         unsafe {
@@ -258,19 +273,19 @@ impl<Callback: AudioInputCallback> AudioThread<Callback, Audio::IAudioCaptureCli
                 break self.finalize();
             }
             self.await_frame()?;
-            self.process()?;
+            (self.process_fn)(&mut self)?;
         }
         .inspect_err(|err| eprintln!("Render thread process error: {err}"))
     }
 
-    fn process(&mut self) -> Result<(), error::WasapiError> {
+    fn process_float(&mut self) -> Result<(), error::WasapiError> {
         let frames_available = unsafe { self.interface.GetNextPacketSize()? as usize };
         if frames_available == 0 {
             return Ok(());
         }
         let Some(mut buffer) = AudioCaptureBuffer::<f32>::from_client(
             &self.interface,
-            self.stream_config.channels.count(),
+            self.stream_config.output_channels,
         )?
         else {
             eprintln!("Null buffer from WASAPI");
@@ -282,14 +297,78 @@ impl<Callback: AudioInputCallback> AudioThread<Callback, Audio::IAudioCaptureCli
             timestamp,
         };
         let buffer =
-            AudioRef::from_interleaved(&mut buffer, self.stream_config.channels.count()).unwrap();
-        let output = AudioInput { timestamp, buffer };
-        self.callback.on_input_data(context, output);
+            AudioRef::from_interleaved(&mut buffer, self.stream_config.output_channels).unwrap();
+        let input = AudioInput { timestamp, buffer };
+        self.callback.process_audio(
+            context,
+            input,
+            AudioOutput {
+                timestamp,
+                buffer: AudioMut::empty(),
+            },
+        );
+        Ok(())
+    }
+
+    fn process<T: ConvertSample>(&mut self) -> Result<(), error::WasapiError> {
+        let frames_available = unsafe { self.interface.GetNextPacketSize()? as usize };
+        if frames_available == 0 {
+            return Ok(());
+        }
+        let Some(buffer) = AudioCaptureBuffer::<T>::from_client(
+            &self.interface,
+            self.stream_config.output_channels,
+        )?
+        else {
+            eprintln!("Null buffer from WASAPI");
+            return Ok(());
+        };
+        T::convert_to_slice(&mut *self.convert_scratch_buffer, &*buffer);
+
+        let timestamp = self.output_timestamp()?;
+        let context = AudioCallbackContext {
+            stream_config: self.stream_config,
+            timestamp,
+        };
+        let buffer = AudioRef::from_interleaved(
+            &mut self.convert_scratch_buffer[..buffer.len()],
+            self.stream_config.output_channels,
+        )
+        .unwrap();
+        let input = AudioInput { timestamp, buffer };
+        self.callback.process_audio(
+            context,
+            input,
+            AudioOutput {
+                timestamp,
+                buffer: AudioMut::empty(),
+            },
+        );
         Ok(())
     }
 }
 
-impl<Callback: AudioOutputCallback> AudioThread<Callback, Audio::IAudioRenderClient> {
+impl<Callback: AudioCallback> AudioThread<Callback, Audio::IAudioRenderClient> {
+    pub(super) fn new(
+        device: WasapiMMDevice,
+        eject_signal: EjectSignal,
+        stream_config: StreamConfig,
+        callback: Callback,
+    ) -> Result<Self, WasapiError> {
+        Self::new_with_process_fn(
+            device,
+            StreamDirection::Input,
+            eject_signal,
+            stream_config,
+            callback,
+            |config| match config {
+                SupportedConfig::Float(..) => Self::process_float,
+                SupportedConfig::I32(..) => Self::process::<i32>,
+                SupportedConfig::U32(..) => Self::process::<u32>,
+            },
+        )
+    }
+
     fn run(mut self) -> Result<Callback, error::WasapiError> {
         set_thread_priority();
         unsafe {
@@ -301,12 +380,12 @@ impl<Callback: AudioOutputCallback> AudioThread<Callback, Audio::IAudioRenderCli
                 break self.finalize();
             }
             self.await_frame()?;
-            self.process()?;
+            (self.process_fn)(&mut self)?;
         }
         .inspect_err(|err| eprintln!("Render thread process error: {err}"))
     }
 
-    fn process(&mut self) -> Result<(), error::WasapiError> {
+    fn process_float(&mut self) -> Result<(), error::WasapiError> {
         let frames_available = unsafe {
             let padding = self.audio_client.GetCurrentPadding()? as usize;
             self.frame_size - padding
@@ -314,14 +393,10 @@ impl<Callback: AudioOutputCallback> AudioThread<Callback, Audio::IAudioRenderCli
         if frames_available == 0 {
             return Ok(());
         }
-        let frames_requested = if let Some(max_frames) = self.stream_config.buffer_size_range.1 {
-            frames_available.min(max_frames)
-        } else {
-            frames_available
-        };
+        let frames_requested = frames_available.min(self.stream_config.max_frame_count);
         let mut buffer = AudioRenderBuffer::<f32>::from_client(
             &self.interface,
-            self.stream_config.channels.count(),
+            self.stream_config.output_channels,
             frames_requested,
         )?;
         let timestamp = self.output_timestamp()?;
@@ -330,11 +405,78 @@ impl<Callback: AudioOutputCallback> AudioThread<Callback, Audio::IAudioRenderCli
             timestamp,
         };
         let buffer =
-            AudioMut::from_interleaved_mut(&mut buffer, self.stream_config.channels.count())
+            AudioMut::from_interleaved_mut(&mut buffer, self.stream_config.output_channels)
                 .unwrap();
         let output = AudioOutput { timestamp, buffer };
-        self.callback.on_output_data(context, output);
+        self.callback.process_audio(
+            context,
+            AudioInput {
+                timestamp: timestamp,
+                buffer: AudioRef::empty(),
+            },
+            output,
+        );
         Ok(())
+    }
+
+    fn process<T: ConvertSample>(&mut self) -> Result<(), error::WasapiError> {
+        let frames_available = unsafe {
+            let padding = self.audio_client.GetCurrentPadding()? as usize;
+            self.frame_size - padding
+        };
+        if frames_available == 0 {
+            return Ok(());
+        }
+        let frames_requested = frames_available.min(self.stream_config.max_frame_count);
+        let mut buffer = AudioRenderBuffer::<T>::from_client(
+            &self.interface,
+            self.stream_config.output_channels,
+            frames_requested,
+        )?;
+        let timestamp = self.output_timestamp()?;
+        let context = AudioCallbackContext {
+            stream_config: self.stream_config,
+            timestamp,
+        };
+        let output = AudioOutput {
+            timestamp,
+            buffer: AudioMut::from_interleaved_mut(
+                &mut self.convert_scratch_buffer[..buffer.len()],
+                self.stream_config.output_channels,
+            )
+            .unwrap(),
+        };
+        self.callback.process_audio(
+            context,
+            AudioInput {
+                timestamp: timestamp,
+                buffer: AudioRef::empty(),
+            },
+            output,
+        );
+        let len = buffer.len();
+        T::convert_from_slice(&mut *buffer, &self.convert_scratch_buffer[..len]);
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StreamDirection {
+    Input,
+    Output,
+}
+
+impl TryFrom<DeviceType> for StreamDirection {
+    type Error = WasapiError;
+
+    fn try_from(value: DeviceType) -> Result<Self, Self::Error> {
+        if value.is_input() {
+            Ok(Self::Input)
+        } else if value.is_output() {
+            Ok(Self::Output)
+        } else {
+            Err(WasapiError::DuplexStreamRequested)
+        }
     }
 }
 
@@ -355,9 +497,10 @@ impl<Callback> AudioStreamHandle<Callback> for WasapiStream<Callback> {
     }
 }
 
-impl<Callback: 'static + Send + AudioInputCallback> WasapiStream<Callback> {
-    pub(crate) fn new_input(
+impl<Callback: 'static + Send + AudioCallback> WasapiStream<Callback> {
+    pub(crate) fn new(
         device: WasapiMMDevice,
+        direction: StreamDirection,
         stream_config: StreamConfig,
         callback: Callback,
     ) -> Self {
@@ -366,41 +509,23 @@ impl<Callback: 'static + Send + AudioInputCallback> WasapiStream<Callback> {
             .name("interflow_wasapi_output_stream".to_string())
             .spawn({
                 let eject_signal = eject_signal.clone();
-                move || {
-                    let inner: AudioThread<Callback, Audio::IAudioCaptureClient> =
-                        AudioThread::new(device, eject_signal, stream_config, callback)
-                            .inspect_err(|err| {
-                                eprintln!("Failed to create render thread: {err}")
-                            })?;
-                    inner.run()
-                }
-            })
-            .expect("Cannot spawn audio output thread");
-        Self {
-            join_handle,
-            eject_signal,
-        }
-    }
-}
-
-impl<Callback: 'static + Send + AudioOutputCallback> WasapiStream<Callback> {
-    pub(crate) fn new_output(
-        device: WasapiMMDevice,
-        stream_config: StreamConfig,
-        callback: Callback,
-    ) -> Self {
-        let eject_signal = EjectSignal::default();
-        let join_handle = std::thread::Builder::new()
-            .name("interflow_wasapi_output_stream".to_string())
-            .spawn({
-                let eject_signal = eject_signal.clone();
-                move || {
-                    let inner: AudioThread<Callback, Audio::IAudioRenderClient> =
-                        AudioThread::new(device, eject_signal, stream_config, callback)
-                            .inspect_err(|err| {
-                                eprintln!("Failed to create render thread: {err}")
-                            })?;
-                    inner.run()
+                move || match direction {
+                    StreamDirection::Input => AudioThread::<_, Audio::IAudioCaptureClient>::new(
+                        device,
+                        eject_signal,
+                        stream_config,
+                        callback,
+                    )
+                    .inspect_err(|err| eprintln!("Failed to create render thread: {err}"))?
+                    .run(),
+                    StreamDirection::Output => AudioThread::<_, Audio::IAudioRenderClient>::new(
+                        device,
+                        eject_signal,
+                        stream_config,
+                        callback,
+                    )
+                    .inspect_err(|err| eprintln!("Failed to create render thread: {err}"))?
+                    .run(),
                 }
             })
             .expect("Cannot spawn audio output thread");
@@ -438,20 +563,52 @@ fn stream_instant(audio_clock: &Audio::IAudioClock) -> Result<Duration, error::W
     Ok(instant)
 }
 
-pub(crate) fn config_to_waveformatextensible(config: &StreamConfig) -> Audio::WAVEFORMATEXTENSIBLE {
-    let format_tag = KernelStreaming::WAVE_FORMAT_EXTENSIBLE;
-    let channels = config.channels as u16;
-    let sample_rate = config.samplerate as u32;
-    let sample_bytes = size_of::<f32>() as u16;
-    let avg_bytes_per_sec = u32::from(channels) * sample_rate * u32::from(sample_bytes);
-    let block_align = channels * sample_bytes;
-    let bits_per_sample = 8 * sample_bytes;
-
-    let cb_size = {
-        let extensible_size = size_of::<Audio::WAVEFORMATEXTENSIBLE>();
-        let ex_size = size_of::<Audio::WAVEFORMATEX>();
-        (extensible_size - ex_size) as u16
+const fn config_to_waveformatextensible(
+    config: &StreamConfig,
+    is_output: bool,
+) -> Audio::WAVEFORMATEXTENSIBLE {
+    const CB_SIZE: u16 = {
+        const EXTENSIBLE_SIZE: usize = size_of::<Audio::WAVEFORMATEXTENSIBLE>();
+        const EX_SIZE: usize = size_of::<Audio::WAVEFORMATEX>();
+        (EXTENSIBLE_SIZE - EX_SIZE) as u16
     };
+    let waveformatex = config_to_waveformatex::<f32>(
+        config,
+        is_output,
+        KernelStreaming::WAVE_FORMAT_EXTENSIBLE,
+        CB_SIZE,
+    );
+
+    let sample_bytes = size_of::<f32>() as u16;
+    let bits_per_sample = 8 * sample_bytes;
+    let channel_mask = KernelStreaming::KSAUDIO_SPEAKER_DIRECTOUT;
+    let sub_format = Multimedia::KSDATAFORMAT_SUBTYPE_IEEE_FLOAT;
+
+    Audio::WAVEFORMATEXTENSIBLE {
+        Format: waveformatex,
+        Samples: Audio::WAVEFORMATEXTENSIBLE_0 {
+            wSamplesPerBlock: bits_per_sample,
+        },
+        dwChannelMask: channel_mask,
+        SubFormat: sub_format,
+    }
+}
+
+const fn config_to_waveformatex<T>(
+    config: &StreamConfig,
+    is_output: bool,
+    format_tag: u32,
+    cb_size: u16,
+) -> Audio::WAVEFORMATEX {
+    let channels = if is_output {
+        config.output_channels as u16
+    } else {
+        config.input_channels as u16
+    };
+    let sample_rate = config.sample_rate as u32;
+    let sample_bytes = size_of::<T>() as u16;
+    let avg_bytes_per_sec = channels as u32 * sample_rate * sample_bytes as u32;
+    let block_align = channels * sample_bytes;
 
     let waveformatex = Audio::WAVEFORMATEX {
         wFormatTag: format_tag as u16,
@@ -459,62 +616,116 @@ pub(crate) fn config_to_waveformatextensible(config: &StreamConfig) -> Audio::WA
         nSamplesPerSec: sample_rate,
         nAvgBytesPerSec: avg_bytes_per_sec,
         nBlockAlign: block_align,
-        wBitsPerSample: bits_per_sample,
+        wBitsPerSample: 8 * sample_bytes,
         cbSize: cb_size,
     };
-
-    let channel_mask = KernelStreaming::KSAUDIO_SPEAKER_DIRECTOUT;
-
-    let sub_format = Multimedia::KSDATAFORMAT_SUBTYPE_IEEE_FLOAT;
-
-    let waveformatextensible = Audio::WAVEFORMATEXTENSIBLE {
-        Format: waveformatex,
-        Samples: Audio::WAVEFORMATEXTENSIBLE_0 {
-            wSamplesPerBlock: bits_per_sample,
-        },
-        dwChannelMask: channel_mask,
-        SubFormat: sub_format,
-    };
-
-    waveformatextensible
+    waveformatex
 }
 
-pub(crate) fn is_output_config_supported(
-    device: WasapiMMDevice,
-    stream_config: &StreamConfig,
-) -> bool {
-    let mut try_ = || unsafe {
-        let audio_client: Audio::IAudioClient = device.activate()?;
-        let sharemode = if stream_config.exclusive {
-            Audio::AUDCLNT_SHAREMODE_EXCLUSIVE
-        } else {
-            Audio::AUDCLNT_SHAREMODE_SHARED
-        };
-        let mut format = config_to_waveformatextensible(&stream_config);
-        let mut actual_format = ptr::null_mut();
-        audio_client
-            .IsFormatSupported(
-                sharemode,
-                &format.Format,
-                (!stream_config.exclusive).then_some(&mut actual_format),
-            )
-            .ok()?;
-        if !stream_config.exclusive {
-            assert!(!actual_format.is_null());
-            format.Format = actual_format.read_unaligned();
-            CoTaskMemFree(actual_format.cast());
-            let sample_rate = format.Format.nSamplesPerSec;
-            let new_channels = 0u32.with_indices(0..format.Format.nChannels as _);
-            let new_samplerate = sample_rate as f64;
-            if stream_config.samplerate != new_samplerate
-                || stream_config.channels.count() != new_channels.count()
-            {
-                return Ok(false);
-            }
+pub(super) enum SupportedConfig {
+    Float(Audio::WAVEFORMATEXTENSIBLE),
+    I32(Audio::WAVEFORMATEX),
+    U32(Audio::WAVEFORMATEX),
+}
+
+impl SupportedConfig {
+    fn format(&self) -> &Audio::WAVEFORMATEX {
+        match self {
+            SupportedConfig::Float(wfx) => &wfx.Format,
+            SupportedConfig::I32(wfx) => wfx,
+            SupportedConfig::U32(wfx) => wfx,
         }
-        Ok::<_, error::WasapiError>(true)
-    };
-    try_()
-        .inspect_err(|err| eprintln!("Error while checking configuration is valid: {err}"))
-        .unwrap_or(false)
+    }
+
+    fn resolved_config(&self, direction: StreamDirection) -> ResolvedStreamConfig {
+        let format = self.format();
+        ResolvedStreamConfig {
+            sample_rate: format.nSamplesPerSec as _,
+            input_channels: if direction == StreamDirection::Input {
+                format.nChannels as _
+            } else {
+                0
+            },
+            output_channels: if direction == StreamDirection::Output {
+                format.nChannels as _
+            } else {
+                0
+            },
+            max_frame_count: format.cbSize as _,
+        }
+    }
+}
+
+pub(super) struct FindSupportedConfig<'a> {
+    pub(super) device: &'a WasapiMMDevice,
+    pub(super) config: &'a StreamConfig,
+    pub(super) is_output: bool,
+}
+
+impl<'a> FindSupportedConfig<'a> {
+    pub(super) fn supported_config(&self) -> Option<SupportedConfig> {
+        self.supported_config_float()
+            .map(SupportedConfig::Float)
+            .or_else(|| self.supported_config_i32().map(SupportedConfig::I32))
+            .or_else(|| self.supported_config_u32().map(SupportedConfig::U32))
+    }
+
+    fn supported_config_float(&self) -> Option<Audio::WAVEFORMATEXTENSIBLE> {
+        let format = config_to_waveformatextensible(self.config, self.is_output);
+        self.check_format(self.config, &format.Format)
+            .then_some(format)
+    }
+
+    fn supported_config_i32(&self) -> Option<Audio::WAVEFORMATEX> {
+        let format =
+            config_to_waveformatex::<i32>(self.config, self.is_output, Audio::WAVE_FORMAT_PCM, 0);
+        self.check_format(self.config, &format).then_some(format)
+    }
+
+    fn supported_config_u32(&self) -> Option<Audio::WAVEFORMATEX> {
+        let format =
+            config_to_waveformatex::<i32>(self.config, self.is_output, Audio::WAVE_FORMAT_PCM, 0);
+        self.check_format(self.config, &format).then_some(format)
+    }
+
+    fn check_format(&self, config: &StreamConfig, format: &Audio::WAVEFORMATEX) -> bool {
+        let try_ = || -> Result<_, WasapiError> {
+            unsafe {
+                let audio_client = self.device.activate::<Audio::IAudioClient>()?;
+                let sharemode = if self.config.exclusive {
+                    Audio::AUDCLNT_SHAREMODE_EXCLUSIVE
+                } else {
+                    Audio::AUDCLNT_SHAREMODE_SHARED
+                };
+                if self.config.exclusive {
+                    audio_client
+                        .IsFormatSupported(Audio::AUDCLNT_SHAREMODE_EXCLUSIVE, format, None)
+                        .ok()?;
+                    return Ok(true);
+                } else {
+                    let Some(actual_format) = CoTaskOwned::construct(|ptr| {
+                        audio_client
+                            .IsFormatSupported(sharemode, format, Some(ptr))
+                            .is_ok()
+                    }) else {
+                        return Ok(false);
+                    };
+                    let format = actual_format.read_unaligned();
+                    let sample_rate = format.nSamplesPerSec;
+                    let new_channels = format.nChannels;
+                    let new_sample_rate = sample_rate as f64;
+                    if config.sample_rate != new_sample_rate
+                        || config.output_channels != new_channels.count()
+                    {
+                        Ok(false)
+                    } else {
+                        Ok(true)
+                    }
+                }
+            }
+        };
+        try_()
+            .inspect_err(|err| eprintln!("Error while checking configuration is valid: {err}"))
+            .unwrap_or(false)
+    }
 }

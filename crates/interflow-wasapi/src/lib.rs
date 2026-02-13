@@ -1,56 +1,85 @@
-use crate::backends::wasapi::device::{WasapiDevice, WasapiDeviceList};
-use bitflags::bitflags_match;
-use std::borrow::Cow;
+pub mod device;
+mod util;
+mod stream;
+
 use std::sync::OnceLock;
+use bitflags::bitflags_match;
 use windows::Win32::Media::Audio;
 use windows::Win32::System::Com;
+use device::Device;
+use interflow_core::{platform, DeviceType};
+use interflow_core::traits::{ExtensionProvider, Selector};
+use crate::util::MMDevice;
 
-use super::{error, util};
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    /// Error originating from WASAPI.
+    #[error("{} (code {})", .0.message(), .0.code())]
+    BackendError(#[from] windows::core::Error),
+    /// Requested WASAPI device configuration is not available
+    #[error("Configuration not available")]
+    ConfigurationNotAvailable,
+    /// Windows Foundation error
+    #[error("Win32 error: {0}")]
+    FoundationError(String),
+    /// Duplex stream requested, unsupported by WASAPI
+    #[error("Unsupported duplex stream requested")]
+    DuplexStreamRequested,
+}
 
-use crate::{AudioDriver, DeviceType};
+#[derive(Debug, Copy, Clone)]
+pub struct Platform;
 
-/// The WASAPI driver.
-#[derive(Debug, Clone, Default)]
-pub struct WasapiDriver;
+impl ExtensionProvider for Platform {
+    fn register<'a, 'sel>(&'a self, selector: &'sel mut Selector<'a>) -> &'sel mut Selector<'a> {
+        selector.register::<dyn DefaultByRole>(self)
+    }
+}
 
-impl AudioDriver for WasapiDriver {
-    type Error = error::WasapiError;
-    type Device = WasapiDevice;
+impl platform::Platform for Platform {
+    type Error = Error;
+    type Device = Device;
+    const NAME: &'static str = "";
 
-    const DISPLAY_NAME: &'static str = "WASAPI";
-
-    fn version(&self) -> Result<Cow<str>, Self::Error> {
-        Ok(Cow::Borrowed("unknown"))
+    fn default_device(device_type: DeviceType) -> Result<Self::Device, Self::Error> {
+        let Some(device) = audio_device_enumerator().get_default_device(device_type)? else {
+            return Err(Error::ConfigurationNotAvailable);
+        };
+        Ok(device)
     }
 
-    fn default_device(&self, device_type: DeviceType) -> Result<Option<Self::Device>, Self::Error> {
-        audio_device_enumerator().get_default_device(device_type)
-    }
-
-    fn list_devices(&self) -> Result<impl IntoIterator<Item = Self::Device>, Self::Error> {
+    fn list_devices(&self) -> Result<impl IntoIterator<Item=Self::Device>, Self::Error> {
         audio_device_enumerator().get_device_list()
     }
 }
 
-pub fn audio_device_enumerator() -> &'static AudioDeviceEnumerator {
+pub trait DefaultByRole {
+    fn default_by_role(&self, flow: Audio::EDataFlow, role: Audio::ERole) -> Result<Device, Error>;
+}
+
+impl DefaultByRole for Platform {
+    fn default_by_role(&self, flow: Audio::EDataFlow, role: Audio::ERole) -> Result<Device, Error> {
+        audio_device_enumerator().get_default_device_with_role(flow, role)
+    }
+}
+
+fn audio_device_enumerator() -> &'static AudioDeviceEnumerator {
+    static ENUMERATOR: OnceLock<AudioDeviceEnumerator> = OnceLock::new();
     ENUMERATOR.get_or_init(|| {
         // Make sure COM is initialised.
-        util::com_initializer();
+        let com = util::com().unwrap();
 
         unsafe {
-            let enumerator = Com::CoCreateInstance::<_, Audio::IMMDeviceEnumerator>(
+            let enumerator = com.create_instance::<_, Audio::IMMDeviceEnumerator>(
                 &Audio::MMDeviceEnumerator,
                 None,
                 Com::CLSCTX_ALL,
-            )
-            .unwrap();
+            ).unwrap();
 
             AudioDeviceEnumerator(enumerator)
         }
     })
 }
-
-static ENUMERATOR: OnceLock<AudioDeviceEnumerator> = OnceLock::new();
 
 /// Send/Sync wrapper around `IMMDeviceEnumerator`.
 pub struct AudioDeviceEnumerator(Audio::IMMDeviceEnumerator);
@@ -60,7 +89,7 @@ impl AudioDeviceEnumerator {
     fn get_default_device(
         &self,
         device_type: DeviceType,
-    ) -> Result<Option<WasapiDevice>, error::WasapiError> {
+    ) -> Result<Option<Device>, Error> {
         let Some(flow) = bitflags_match!(device_type, {
             DeviceType::INPUT | DeviceType::PHYSICAL => Some(Audio::eCapture),
             DeviceType::OUTPUT | DeviceType::PHYSICAL => Some(Audio::eRender),
@@ -77,24 +106,24 @@ impl AudioDeviceEnumerator {
         &self,
         flow: Audio::EDataFlow,
         role: Audio::ERole,
-    ) -> Result<WasapiDevice, error::WasapiError> {
+    ) -> Result<Device, Error> {
         unsafe {
             let device = self.0.GetDefaultAudioEndpoint(flow, role)?;
             let device_type = match flow {
                 Audio::eRender => DeviceType::OUTPUT,
                 _ => DeviceType::INPUT,
             };
-            Ok(WasapiDevice::new(
-                device,
-                DeviceType::PHYSICAL | device_type,
-            ))
+            Ok(Device {
+                handle: MMDevice::new(device),
+                device_type: DeviceType::PHYSICAL | device_type,
+            })
         }
     }
 
     // Returns a chained iterator of output and input devices.
     fn get_device_list(
         &self,
-    ) -> Result<impl IntoIterator<Item = WasapiDevice>, error::WasapiError> {
+    ) -> Result<impl IntoIterator<Item = Device>, Error> {
         // Create separate collections for output and input devices and then chain them.
         unsafe {
             let output_collection = self
@@ -103,7 +132,7 @@ impl AudioDeviceEnumerator {
 
             let count = output_collection.GetCount()?;
 
-            let output_device_list = WasapiDeviceList {
+            let output_device_list = device::DeviceList {
                 collection: output_collection,
                 total_count: count,
                 next_item: 0,
@@ -116,7 +145,7 @@ impl AudioDeviceEnumerator {
 
             let count = input_collection.GetCount()?;
 
-            let input_device_list = WasapiDeviceList {
+            let input_device_list = device::DeviceList {
                 collection: input_collection,
                 total_count: count,
                 next_item: 0,

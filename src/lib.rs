@@ -1,18 +1,18 @@
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
-use bitflags::bitflags;
-use std::borrow::Cow;
-
 use crate::audio_buffer::{AudioMut, AudioRef};
 use crate::channel_map::ChannelMap32;
 use crate::timestamp::Timestamp;
+use bitflags::bitflags;
+use std::borrow::Cow;
 
 pub mod audio_buffer;
 pub mod backends;
 pub mod channel_map;
 pub mod duplex;
 pub mod prelude;
+mod sample;
 pub mod timestamp;
 
 bitflags! {
@@ -40,11 +40,11 @@ bitflags! {
 }
 
 /// Audio drivers provide access to the inputs and outputs of devices.
-/// Several drivers might provide the same accesses, some sharing it with other applications,
+/// Several drivers might provide the same access, some sharing it with other applications,
 /// while others work in exclusive mode.
 pub trait AudioDriver {
     /// Type of errors that can happen when using this audio driver.
-    type Error: std::error::Error;
+    type Error: Send + std::error::Error;
     /// Type of audio devices this driver provides.
     type Device: AudioDevice;
 
@@ -100,14 +100,11 @@ impl DeviceType {
 pub struct StreamConfig {
     /// Configured sample rate of the requested stream. The opened stream can have a different
     /// sample rate, so don't rely on this parameter being correct at runtime.
-    pub samplerate: f64,
-    /// Map of channels requested by the stream. Entries correspond in order to
-    /// [AudioDevice::channel_map].
-    ///
-    /// Some drivers allow specifying which channels are going to be opened and available through
-    /// the audio buffers. For other drivers, only the number of requested channels is used, and
-    /// order does not matter.
-    pub channels: ChannelMap32,
+    pub sample_rate: f64,
+    /// Number of input channels requested
+    pub input_channels: usize,
+    /// Number of output channels requested
+    pub output_channels: usize,
     /// Range of preferential buffer sizes, in units of audio samples per channel.
     /// The library will make a best-effort attempt at honoring this setting, and in future versions
     /// may provide additional buffering to ensure it, but for now you should not make assumptions
@@ -118,12 +115,51 @@ pub struct StreamConfig {
     pub exclusive: bool,
 }
 
+impl StreamConfig {
+    /// Returns a [`DeviceType`] that describes this [`StreamConfig`]. Only [`DeviceType::INPUT`] and
+    /// [`DeviceType::OUTPUT`] are set.
+    pub fn requested_device_type(&self) -> DeviceType {
+        let mut ret = DeviceType::empty();
+        ret.set(DeviceType::INPUT, self.input_channels > 0);
+        ret.set(DeviceType::OUTPUT, self.output_channels > 0);
+        ret
+    }
+
+    /// Changes the [`StreamConfig`] such that it matches the configuration of a stream created with a device with
+    /// the given [`DeviceType`].
+    ///
+    /// This method returns a copy of the input [`StreamConfig`].
+    pub fn restrict(mut self, requested_type: DeviceType) -> Self {
+        if !requested_type.is_input() {
+            self.input_channels = 0;
+        }
+        if !requested_type.is_output() {
+            self.output_channels = 0;
+        }
+        self
+    }
+}
+
+/// Configuration for an audio stream.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ResolvedStreamConfig {
+    /// Configured sample rate of the requested stream. The opened stream can have a different
+    /// sample rate, so don't rely on this parameter being correct at runtime.
+    pub sample_rate: f64,
+    /// Number of input channels requested
+    pub input_channels: usize,
+    /// Number of output channels requested
+    pub output_channels: usize,
+    /// Maximum number of frames the audio callback will receive
+    pub max_frame_count: usize,
+}
+
 /// Audio channel description.
 #[derive(Debug, Clone)]
 pub struct Channel<'a> {
     /// Index of the channel in the device
     pub index: usize,
-    /// Display name for the channel, if available, else a generic name like "Channel 1"
+    /// Display the name for the channel, if available, else a generic name like "Channel 1"
     pub name: Cow<'a, str>,
 }
 
@@ -131,8 +167,13 @@ pub struct Channel<'a> {
 /// and depending on the driver, can be duplex devices which can provide both of them at the same
 /// time natively.
 pub trait AudioDevice {
+    /// Type of the resulting stream. This stream can be used to control the audio processing
+    /// externally or stop it completely and give back ownership of the callback with
+    /// [`AudioStreamHandle::eject`].
+    type StreamHandle<Callback: AudioCallback>: AudioStreamHandle<Callback>;
+
     /// Type of errors that can happen when using this device.
-    type Error: std::error::Error;
+    type Error: Send + std::error::Error;
 
     /// Device display name
     fn name(&self) -> Cow<'_, str>;
@@ -144,93 +185,24 @@ pub trait AudioDevice {
     /// specifying which channels to open when creating an audio stream.
     fn channel_map(&self) -> impl IntoIterator<Item = Channel<'_>>;
 
-    /// Not all configuration values make sense for a particular device, and this method tests a
-    /// configuration to see if it can be used in an audio stream.
-    fn is_config_supported(&self, config: &StreamConfig) -> bool;
-
-    /// Enumerate all possible configurations this device supports. If that is not provided by
-    /// the device, and not easily generated manually, this will return `None`.
-    fn enumerate_configurations(&self) -> Option<impl IntoIterator<Item = StreamConfig>>;
+    /// Default configuration for this device. If [`Ok`], should return a [`StreamConfig`] that is supported (i.e.,
+    /// returns `true` when passed to [`Self::is_config_supported`]).
+    fn default_config(&self) -> Result<StreamConfig, Self::Error>;
 
     /// Returns the supported I/O buffer size range for the device.
     fn buffer_size_range(&self) -> Result<(Option<usize>, Option<usize>), Self::Error> {
         Ok((None, None))
     }
-}
 
-/// Marker trait for values which are [Send] everywhere but on the web (as WASM does not yet have
-/// web targets.
-///
-/// This should only be used to define the traits and should not be relied upon in external code.
-///
-/// This definition is selected on non-web platforms, and does require [`Send`].
-#[cfg(not(wasm))]
-pub trait SendEverywhereButOnWeb: 'static + Send {}
-#[cfg(not(wasm))]
-impl<T: 'static + Send> SendEverywhereButOnWeb for T {}
+    /// Not all configuration values make sense for a particular device, and this method tests a
+    /// configuration to see if it can be used in an audio stream.
+    fn is_config_supported(&self, config: &StreamConfig) -> bool;
 
-/// Marker trait for values which are [Send] everywhere but on the web (as WASM does not yet have
-/// web targets.
-///
-/// This should only be used to define the traits and should not be relied upon in external code.
-///
-/// This definition is selected on web platforms, and does not require [`Send`].
-#[cfg(wasm)]
-pub trait SendEverywhereButOnWeb {}
-#[cfg(wasm)]
-impl<T> SendEverywhereButOnWeb for T {}
-
-/// Trait for types which can provide input streams.
-///
-/// Input devices require a [`AudioInputCallback`] which receives the audio data from the input
-/// device, and processes it.
-pub trait AudioInputDevice: AudioDevice {
-    /// Type of the resulting stream. This stream can be used to control the audio processing
-    /// externally, or stop it completely and give back ownership of the callback with
-    /// [`AudioStreamHandle::eject`].
-    type StreamHandle<Callback: AudioInputCallback>: AudioStreamHandle<Callback>;
-
-    /// Return the default configuration for this device, if there is one. The returned configuration *must* be
-    /// valid according to [`Self::is_config_supported`].
-    fn default_input_config(&self) -> Result<StreamConfig, Self::Error>;
-
-    /// Creates an input stream with the provided stream configuration. For this call to be
-    /// valid, [`AudioDevice::is_config_supported`] should have returned `true` on the provided
-    /// configuration.
+    /// List all possible configurations this device supports. If that is not provided by
+    /// the device and not easily generated manually, this will return `None`.
     ///
-    /// An input callback is required to process the audio, whose ownership will be transferred
-    /// to the audio stream.
-    fn create_input_stream<Callback: SendEverywhereButOnWeb + AudioInputCallback>(
-        &self,
-        stream_config: StreamConfig,
-        callback: Callback,
-    ) -> Result<Self::StreamHandle<Callback>, Self::Error>;
-
-    /// Create an input stream with the default configuration (as returned by [`Self::default_input_config`]).
-    ///
-    /// # Arguments
-    ///
-    /// - `callback`: Callback to process the audio input
-    fn default_input_stream<Callback: SendEverywhereButOnWeb + AudioInputCallback>(
-        &self,
-        callback: Callback,
-    ) -> Result<Self::StreamHandle<Callback>, Self::Error> {
-        self.create_input_stream(self.default_input_config()?, callback)
-    }
-}
-
-/// Trait for types which can provide output streams.
-///
-/// Output devices require a [`AudioOutputCallback`] which receives the audio data from the output
-/// device, and processes it.
-pub trait AudioOutputDevice: AudioDevice {
-    /// Type of the resulting stream. This stream can be used to control the audio processing
-    /// externally, or stop it completely and give back ownership of the callback with
-    /// [`AudioStreamHandle::eject`].
-    type StreamHandle<Callback: AudioOutputCallback>: AudioStreamHandle<Callback>;
-
-    /// Return the default output configuration for this device, if it exists
-    fn default_output_config(&self) -> Result<StreamConfig, Self::Error>;
+    /// The returned configurations should be supported as valid when passed to [`Self::is_config_supported`].
+    fn enumerate_configurations(&self) -> Option<impl IntoIterator<Item = StreamConfig>>;
 
     /// Creates an output stream with the provided stream configuration. For this call to be
     /// valid, [`AudioDevice::is_config_supported`] should have returned `true` on the provided
@@ -238,7 +210,7 @@ pub trait AudioOutputDevice: AudioDevice {
     ///
     /// An output callback is required to process the audio, whose ownership will be transferred
     /// to the audio stream.
-    fn create_output_stream<Callback: SendEverywhereButOnWeb + AudioOutputCallback>(
+    fn create_stream<Callback: 'static + Send + AudioCallback>(
         &self,
         stream_config: StreamConfig,
         callback: Callback,
@@ -249,24 +221,18 @@ pub trait AudioOutputDevice: AudioDevice {
     /// # Arguments
     ///
     /// - `callback`: Output callback to generate audio data with.
-    fn default_output_stream<Callback: SendEverywhereButOnWeb + AudioOutputCallback>(
+    fn default_stream<Callback: 'static + Send + AudioCallback>(
         &self,
+        requested_type: DeviceType,
         callback: Callback,
     ) -> Result<Self::StreamHandle<Callback>, Self::Error> {
-        self.create_output_stream(self.default_output_config()?, callback)
+        let config = self.default_config()?.restrict(requested_type);
+        debug_assert!(
+            self.is_config_supported(&config),
+            "Default configuration is not supported"
+        );
+        self.create_stream(config, callback)
     }
-}
-
-/// Trait for types which handles an audio stream (input or output).
-pub trait AudioStreamHandle<Callback> {
-    /// Type of errors which have caused the stream to fail.
-    type Error: std::error::Error;
-
-    /// Eject the stream, returning ownership of the callback.
-    ///
-    /// An error can occur when an irrecoverable error has occured and ownership has been lost
-    /// already.
-    fn eject(self) -> Result<Callback, Self::Error>;
 }
 
 #[duplicate::duplicate_item(
@@ -292,21 +258,35 @@ pub struct name<'a, T> {
 pub struct AudioCallbackContext {
     /// Passed-in stream configuration. Values have been updated where necessary to correspond to
     /// the actual stream properties.
-    pub stream_config: StreamConfig,
+    pub stream_config: ResolvedStreamConfig,
     /// Callback-wide timestamp.
     pub timestamp: Timestamp,
 }
 
-/// Trait of types which process input audio data. This is the trait that users will want to
-/// implement when processing an input device.
-pub trait AudioInputCallback {
-    /// Callback called when input data is available to be processed.
-    fn on_input_data(&mut self, context: AudioCallbackContext, input: AudioInput<f32>);
+/// Trait for types which handles an audio stream (input or output).
+pub trait AudioStreamHandle<Callback> {
+    /// Type of errors which have caused the stream to fail.
+    type Error: Send + std::error::Error;
+
+    /// Eject the stream, returning ownership of the callback.
+    ///
+    /// An error can occur when an irrecoverable error has occured and ownership has been lost
+    /// already.
+    fn eject(self) -> Result<Callback, Self::Error>;
 }
 
-/// Trait of types which process output audio data. This is the trait that users will want to
-/// implement when processing an output device.
-pub trait AudioOutputCallback {
-    /// Callback called when output data is available to be processed.
-    fn on_output_data(&mut self, context: AudioCallbackContext, input: AudioOutput<f32>);
+/// Trait of types which process audio data. This is the trait that users will want to
+/// implement when processing audio from a device.
+pub trait AudioCallback: Send {
+    /// Prepare the audio callback to process audio. This function is *not* real-time safe (i.e., allocations can be
+    /// performed), in preparation for processing the stream with [`Self::process_audio`].
+    fn prepare(&mut self, context: AudioCallbackContext);
+
+    /// Callback called when audio data can be processed.
+    fn process_audio(
+        &mut self,
+        context: AudioCallbackContext,
+        input: AudioInput<f32>,
+        output: AudioOutput<f32>,
+    );
 }

@@ -6,15 +6,17 @@ use crate::channel_map::Bitset;
 use crate::prelude::pipewire::utils::{BlackHole, CallbackHolder};
 use crate::timestamp::Timestamp;
 use crate::{
-    AudioCallbackContext, AudioInput, AudioInputCallback, AudioOutput, AudioOutputCallback,
-    AudioStreamHandle, StreamConfig,
+    audio_buffer::{AudioMut, AudioRef},
+    ResolvedStreamConfig,
+};
+use crate::{
+    AudioCallback, AudioCallbackContext, AudioInput, AudioOutput, AudioStreamHandle, StreamConfig,
 };
 use libspa::buffer::Data;
 use libspa::param::audio::{AudioFormat, AudioInfoRaw};
 use libspa::pod::Pod;
 use libspa::utils::Direction;
 use libspa_sys::{SPA_PARAM_EnumFormat, SPA_TYPE_OBJECT_Format};
-use pipewire::context::Context;
 use pipewire::keys;
 use pipewire::main_loop::MainLoop;
 use pipewire::properties::Properties;
@@ -41,42 +43,43 @@ impl<Callback> fmt::Debug for StreamCommands<Callback> {
 struct StreamInner<Callback> {
     scratch_buffer: Box<[f32]>,
     callback: Weak<CallbackHolder<Callback>>,
-    config: StreamConfig,
+    config: ResolvedStreamConfig,
     timestamp: Timestamp,
 }
 
-impl<Callback: AudioOutputCallback> StreamInner<Callback> {
-    fn process_output(&mut self, channels: usize, buffer_size: usize) -> usize {
-        let buffer = AudioMut::from_interleaved_mut(
-            &mut self.scratch_buffer[..channels * buffer_size],
+impl<Callback: AudioCallback> StreamInner<Callback> {
+    fn process_output(&mut self, channels: usize, frames: usize) -> usize {
+        let buffer = AudioMut::from_noninterleaved_mut(
+            &mut self.scratch_buffer[..channels * frames],
             channels,
         )
         .unwrap();
-        if let Some(mut callback) = self.callback.upgrade() {
-            let context = AudioCallbackContext {
-                stream_config: self.config,
-                timestamp: self.timestamp,
-            };
-            let num_frames = buffer.num_samples();
-            let output = AudioOutput {
-                buffer,
-                timestamp: self.timestamp,
-            };
-
-            // SAFETY: there is max one other owner of the callback Arc, and it never dereferences
-            // it thanks to `BlackHole`, fulfilling safety requirements of `arc_get_mut_unchecked()`.
-            let callback = unsafe { arc_get_mut_unchecked(&mut callback) };
-            callback.on_output_data(context, output);
-
-            self.timestamp += num_frames as u64;
-            num_frames
-        } else {
-            0
-        }
+        let Some(mut callback) = self.callback.upgrade() else {
+            return 0;
+        };
+        let context = AudioCallbackContext {
+            stream_config: self.config,
+            timestamp: self.timestamp,
+        };
+        let num_frames = buffer.num_frames();
+        let dummy_input = AudioInput {
+            timestamp: Timestamp::new(self.config.sample_rate),
+            buffer: AudioRef::empty(),
+        };
+        let output = AudioOutput {
+            buffer,
+            timestamp: self.timestamp,
+        };
+        // SAFETY: there is max one other owner of the callback Arc, and it never dereferences
+        // it thanks to `BlackHole`, fulfilling safety requirements of `arc_get_mut_unchecked()`.
+        let callback = unsafe { arc_get_mut_unchecked(&mut callback) };
+        callback.process_audio(context, dummy_input, output);
+        self.timestamp += num_frames as u64;
+        num_frames
     }
 }
 
-impl<Callback: AudioInputCallback> StreamInner<Callback> {
+impl<Callback: AudioCallback> StreamInner<Callback> {
     fn process_input(&mut self, channels: usize, frames: usize) -> usize {
         let buffer =
             AudioRef::from_interleaved(&self.scratch_buffer[..channels * frames], channels)
@@ -86,7 +89,7 @@ impl<Callback: AudioInputCallback> StreamInner<Callback> {
                 stream_config: self.config,
                 timestamp: self.timestamp,
             };
-            let num_frames = buffer.num_samples();
+            let num_frames = buffer.num_frames();
             let input = AudioInput {
                 buffer,
                 timestamp: self.timestamp,
@@ -125,12 +128,27 @@ impl<Callback> AudioStreamHandle<Callback> for StreamHandle<Callback> {
     }
 }
 
-impl<Callback: 'static + Send> StreamHandle<Callback> {
+impl<Callback: 'static + AudioCallback> StreamHandle<Callback> {
     fn create_stream(
+        name: String,
+        serial: Option<String>,
+        config: StreamConfig,
+        callback: Callback,
+    ) -> Result<Self, PipewireError> {
+        let handle = std::thread::Builder::new()
+            .name(format!("{name} audio thread"))
+            .spawn(move || {
+                let main_loop = MainLoop::new(None)?;
+                let context = Context::new(&main_loop)?;
+                let core = context.connect(None)?;
+                Ok(todo!())
+            });
+    }
+
+    fn create_stream_old(
         device_object_serial: Option<String>,
         name: String,
-        mut config: StreamConfig,
-        user_properties: HashMap<Vec<u8>, Vec<u8>>,
+        config: StreamConfig,
         callback: Callback,
         direction: pipewire::spa::utils::Direction,
         process_frames: impl Fn(&mut [Data], &mut StreamInner<Callback>, usize) -> usize
@@ -146,7 +164,11 @@ impl<Callback: 'static + Send> StreamHandle<Callback> {
             let context = Context::new(&main_loop)?;
             let core = context.connect(None)?;
 
-            let channels = config.channels.count();
+            let channels = if direction == pipewire::spa::utils::Direction::Input {
+                config.input_channels
+            } else {
+                config.output_channels
+            };
             let channels_str = channels.to_string();
             let buffer_size = stream_buffer_size(config.buffer_size_range);
 
@@ -154,6 +176,24 @@ impl<Callback: 'static + Send> StreamHandle<Callback> {
             for (key, value) in user_properties {
                 properties.insert(key, value);
             }
+
+            let input_channels = if direction == pipewire::spa::utils::Direction::Input {
+                channels
+            } else {
+                0
+            };
+            let output_channels = if direction == pipewire::spa::utils::Direction::Output {
+                channels
+            } else {
+                0
+            };
+
+            let config = ResolvedStreamConfig {
+                sample_rate: config.sample_rate.round(),
+                input_channels,
+                output_channels,
+                max_frame_count,
+            };
 
             properties.insert(*keys::MEDIA_TYPE, "Audio");
             properties.insert(*keys::MEDIA_ROLE, "Music");
@@ -170,9 +210,15 @@ impl<Callback: 'static + Send> StreamHandle<Callback> {
 
             let stream_inner = StreamInner {
                 callback: Arc::downgrade(&callback_holder),
-                scratch_buffer: vec![0.0; MAX_FRAMES * channels].into_boxed_slice(),
+                scratch_buffer: {
+                    log::debug!(
+                        "StreamInner: allocating {} frames",
+                        max_frame_count * channels
+                    );
+                    vec![0.0; max_frame_count * channels].into_boxed_slice()
+                },
                 config,
-                timestamp: Timestamp::new(config.samplerate),
+                timestamp: Timestamp::new(config.sample_rate),
             };
 
             // SAFETY of StreamInner::process_input(), StreamInner::process_output() depends on us
@@ -209,7 +255,7 @@ impl<Callback: 'static + Send> StreamHandle<Callback> {
                     properties: {
                         let mut info = AudioInfoRaw::new();
                         info.set_format(AudioFormat::F32LE);
-                        info.set_rate(config.samplerate as u32);
+                        info.set_rate(config.sample_rate as u32);
                         info.set_channels(channels as u32);
                         info.into()
                     },
@@ -271,7 +317,7 @@ impl<Callback: 'static + Send> StreamHandle<Callback> {
     }
 }
 
-impl<Callback: 'static + Send + AudioInputCallback> StreamHandle<Callback> {
+impl<Callback: 'static + Send + AudioCallback> StreamHandle<Callback> {
     /// Create an input Pipewire stream
     pub fn new_input(
         device_object_serial: Option<String>,
@@ -280,7 +326,7 @@ impl<Callback: 'static + Send + AudioInputCallback> StreamHandle<Callback> {
         properties: HashMap<Vec<u8>, Vec<u8>>,
         callback: Callback,
     ) -> Result<Self, PipewireError> {
-        Self::create_stream(
+        Self::create_stream_old(
             device_object_serial,
             name.to_string(),
             config,
@@ -321,7 +367,7 @@ fn get_category(direction: pipewire::spa::utils::Direction) -> &'static str {
     }
 }
 
-impl<Callback: 'static + Send + AudioOutputCallback> StreamHandle<Callback> {
+impl<Callback: 'static + Send + AudioCallback> StreamHandle<Callback> {
     /// Create an output Pipewire stream
     pub fn new_output(
         device_object_serial: Option<String>,
@@ -330,7 +376,7 @@ impl<Callback: 'static + Send + AudioOutputCallback> StreamHandle<Callback> {
         properties: HashMap<Vec<u8>, Vec<u8>>,
         callback: Callback,
     ) -> Result<Self, PipewireError> {
-        Self::create_stream(
+        Self::create_stream_old(
             device_object_serial,
             name.to_string(),
             config,

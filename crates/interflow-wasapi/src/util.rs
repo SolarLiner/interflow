@@ -1,93 +1,80 @@
-use crate::prelude::wasapi::error;
 use std::ffi::OsString;
 use std::marker::PhantomData;
 use std::ops;
 use std::os::windows::ffi::OsStringExt;
 use std::ptr::{self, NonNull};
-use windows::core::{Interface, HRESULT};
+use std::sync::OnceLock;
+use windows::core::Interface;
 use windows::Win32::Devices::Properties;
-use windows::Win32::Foundation::RPC_E_CHANGED_MODE;
 use windows::Win32::Media::Audio;
-use windows::Win32::System::Com::{self, CoTaskMemFree};
-use windows::Win32::System::Com::{
-    CoInitializeEx, CoUninitialize, StructuredStorage, COINIT_APARTMENTTHREADED, STGM_READ,
-};
+use windows::Win32::System::Com::{self, CoTaskMemFree, CLSCTX, COINIT_MULTITHREADED, CoInitializeEx, CoUninitialize, StructuredStorage, STGM_READ};
 use windows::Win32::System::Variant::VT_LPWSTR;
-
-thread_local!(static COM_INITIALIZER: ComInitializer = {
-    unsafe {
-        // Try to initialize COM with STA by default to avoid compatibility issues with the ASIO
-        // backend (where CoInitialize() is called by the ASIO SDK) or winit (where drag and drop
-        // requires STA).
-        // This call can fail with RPC_E_CHANGED_MODE if another library initialized COM with MTA.
-        // That's OK though since COM ensures thread-safety/compatibility through marshalling when
-        // necessary.
-        let result = CoInitializeEx(None, COINIT_APARTMENTTHREADED);
-        if result.is_ok() || result == RPC_E_CHANGED_MODE {
-            ComInitializer {
-                result,
-                _ptr: PhantomData,
-            }
-        } else {
-            // COM initialization failed in another way, something is really wrong.
-            panic!(
-                "Failed to initialize COM: {}",
-                std::io::Error::from_raw_os_error(result.0)
-            );
-        }
-    }
-});
 
 /// RAII object that guards the fact that COM is initialized.
 ///
 // We store a raw pointer because it's the only way at the moment to remove `Send`/`Sync` from the
 // object.
-struct ComInitializer {
-    result: windows::core::HRESULT,
-    _ptr: PhantomData<*mut ()>,
+struct ComponentObjectModel(PhantomData<()>);
+
+impl ComponentObjectModel {
+    pub unsafe fn create_instance<
+        P1: windows::core::Param<windows::core::IUnknown>,
+        T: Interface,
+    >(
+        &self,
+        guid: *const windows::core::GUID,
+        param1: P1,
+        class_context: CLSCTX,
+    ) -> windows::core::Result<T> {
+        Com::CoCreateInstance(guid, param1, class_context)
+    }
 }
 
-impl Drop for ComInitializer {
+impl Drop for ComponentObjectModel {
     #[inline]
     fn drop(&mut self) {
-        // Need to avoid calling CoUninitialize() if CoInitializeEx failed since it may have
-        // returned RPC_E_MODE_CHANGED - which is OK, see above.
-        if self.result.is_ok() {
-            unsafe { CoUninitialize() };
-        }
+        unsafe { CoUninitialize() };
     }
 }
 
 /// Ensures that COM is initialized in this thread.
 #[inline]
-pub fn com_initializer() {
-    COM_INITIALIZER.with(|_| {});
+pub fn com() -> windows::core::Result<&'static ComponentObjectModel> {
+    static VALUE: OnceLock<ComponentObjectModel> = OnceLock::new();
+    let Some(value) = VALUE.get() else {
+        unsafe {
+            CoInitializeEx(None, COINIT_MULTITHREADED).ok()?;
+        }
+        let _ = VALUE.set(ComponentObjectModel(PhantomData));
+        return Ok(VALUE.get().unwrap());
+    };
+    Ok(value)
 }
 
 #[derive(Debug, Clone)]
-pub struct WasapiMMDevice(Audio::IMMDevice);
+pub struct MMDevice(Audio::IMMDevice);
 
-unsafe impl Send for WasapiMMDevice {}
+unsafe impl Send for MMDevice {}
 
-impl WasapiMMDevice {
+impl MMDevice {
     pub(crate) fn new(device: Audio::IMMDevice) -> Self {
         Self(device)
     }
 
-    pub(crate) fn activate<T: Interface>(&self) -> Result<T, error::WasapiError> {
+    pub(crate) fn activate<T: Interface>(&self) -> Result<T, crate::Error> {
         unsafe {
             self.0
                 .Activate::<T>(Com::CLSCTX_ALL, None)
-                .map_err(|err| error::WasapiError::BackendError(err))
+                .map_err(crate::Error::BackendError)
         }
     }
 
-    pub(crate) fn name(&self) -> Option<String> {
+    pub(crate) fn name(&self) -> String {
         get_device_name(&self.0)
     }
 }
 
-fn get_device_name(device: &Audio::IMMDevice) -> Option<String> {
+fn get_device_name(device: &Audio::IMMDevice) -> String {
     unsafe {
         // Open the device's property store.
         let property_store = device
@@ -102,14 +89,12 @@ fn get_device_name(device: &Audio::IMMDevice) -> Option<String> {
             ))
             .or(property_store
                 .GetValue(&Properties::DEVPKEY_Device_DeviceDesc as *const _ as *const _))
-            .ok()?;
+            .unwrap();
 
         let prop_variant = &property_value.Anonymous.Anonymous;
 
         // Read the friendly-name from the union data field, expecting a *const u16.
-        if prop_variant.vt != VT_LPWSTR {
-            return None;
-        }
+        assert_eq!(VT_LPWSTR, prop_variant.vt);
 
         let ptr_utf16 = *(&prop_variant.Anonymous as *const _ as *const *const u16);
 
@@ -127,31 +112,31 @@ fn get_device_name(device: &Audio::IMMDevice) -> Option<String> {
             .unwrap_or_else(|os_string| os_string.to_string_lossy().into());
 
         // Clean up.
-        StructuredStorage::PropVariantClear(&mut property_value).ok()?;
+        StructuredStorage::PropVariantClear(&mut property_value).unwrap();
 
-        Some(name)
+        name
     }
 }
 
 #[repr(transparent)]
-pub(super) struct CoTaskOwned<T> {
-    ptr: ptr::NonNull<T>,
+pub(super) struct CoTask<T> {
+    ptr: NonNull<T>,
 }
 
-impl<T> ops::Deref for CoTaskOwned<T> {
-    type Target = ptr::NonNull<T>;
+impl<T> ops::Deref for CoTask<T> {
+    type Target = NonNull<T>;
     fn deref(&self) -> &Self::Target {
         &self.ptr
     }
 }
 
-impl<T> ops::DerefMut for CoTaskOwned<T> {
+impl<T> ops::DerefMut for CoTask<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.ptr
     }
 }
 
-impl<T> Drop for CoTaskOwned<T> {
+impl<T> Drop for CoTask<T> {
     fn drop(&mut self) {
         unsafe {
             CoTaskMemFree(Some(self.ptr.as_ptr().cast()));
@@ -159,7 +144,7 @@ impl<T> Drop for CoTaskOwned<T> {
     }
 }
 
-impl<T> CoTaskOwned<T> {
+impl<T> CoTask<T> {
     pub(super) const unsafe fn new(ptr: NonNull<T>) -> Self {
         Self { ptr }
     }
@@ -169,6 +154,6 @@ impl<T> CoTaskOwned<T> {
         if !func(&mut ptr) {
             return None;
         }
-        ptr::NonNull::new(ptr).map(|ptr| Self { ptr })
+        NonNull::new(ptr).map(|ptr| Self { ptr })
     }
 }

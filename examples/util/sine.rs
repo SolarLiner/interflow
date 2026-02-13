@@ -1,20 +1,29 @@
-use interflow::{AudioCallbackContext, AudioOutput, AudioOutputCallback};
+use interflow::{AudioCallback, AudioCallbackContext, AudioInput, AudioOutput};
 use std::f32::consts::TAU;
 
 pub struct SineWave {
     pub frequency: f32,
     pub phase: f32,
+    step_frequency_scaling: f32,
 }
 
-impl AudioOutputCallback for SineWave {
-    fn on_output_data(&mut self, context: AudioCallbackContext, mut output: AudioOutput<f32>) {
+impl AudioCallback for SineWave {
+    fn prepare(&mut self, context: AudioCallbackContext) {
+        self.step_frequency_scaling = context.stream_config.sample_rate.recip() as f32;
+    }
+    fn process_audio(
+        &mut self,
+        context: AudioCallbackContext,
+        _input: AudioInput<f32>,
+        mut output: AudioOutput<f32>,
+    ) {
         eprintln!(
             "Callback called, timestamp: {:2.3} s",
             context.timestamp.as_seconds()
         );
         let sr = context.timestamp.samplerate as f32;
-        for i in 0..output.buffer.num_samples() {
-            output.buffer.set_mono(i, self.next_sample(sr));
+        for i in 0..output.buffer.num_frames() {
+            output.buffer.set_mono(i, self.next_sample());
         }
         // Reduce amplitude to not blow up speakers and ears
         output.buffer.change_amplitude(0.125);
@@ -26,11 +35,12 @@ impl SineWave {
         Self {
             frequency,
             phase: 0.0,
+            step_frequency_scaling: 0.0,
         }
     }
 
-    pub fn next_sample(&mut self, samplerate: f32) -> f32 {
-        let step = samplerate.recip() * self.frequency;
+    pub fn next_sample(&mut self) -> f32 {
+        let step = self.step_frequency_scaling * self.frequency;
         let y = (TAU * self.phase).sin();
         self.phase += step;
         if self.phase > 1. {

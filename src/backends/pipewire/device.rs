@@ -2,10 +2,7 @@
 
 use super::stream::StreamHandle;
 use crate::backends::pipewire::error::PipewireError;
-use crate::{
-    AudioDevice, AudioInputCallback, AudioInputDevice, AudioOutputCallback, AudioOutputDevice,
-    Channel, DeviceType, SendEverywhereButOnWeb, StreamConfig,
-};
+use crate::{AudioCallback, AudioDevice, Channel, DeviceType, StreamConfig};
 use pipewire::context::Context;
 use pipewire::main_loop::MainLoop;
 use pipewire::properties::Properties;
@@ -39,6 +36,8 @@ impl PipewireDevice {
 }
 
 impl AudioDevice for PipewireDevice {
+    type StreamHandle<Callback: AudioCallback> = StreamHandle<Callback>;
+
     type Error = PipewireError;
 
     fn name(&self) -> Cow<'_, str> {
@@ -73,61 +72,33 @@ impl AudioDevice for PipewireDevice {
     }
 
     fn enumerate_configurations(&self) -> Option<impl IntoIterator<Item = StreamConfig>> {
-        Some([])
+        None::<[StreamConfig; 0]>
     }
-}
 
-impl AudioInputDevice for PipewireDevice {
-    type StreamHandle<Callback: AudioInputCallback> = StreamHandle<Callback>;
-
-    fn default_input_config(&self) -> Result<StreamConfig, Self::Error> {
+    fn default_config(&self) -> Result<StreamConfig, Self::Error> {
+        let input_channels = if self.device_type.is_input() { 2 } else { 0 };
+        let output_channels = if self.device_type.is_output() { 2 } else { 0 };
         Ok(StreamConfig {
-            samplerate: 48000.0,
-            channels: 0b11,
-            exclusive: false,
+            sample_rate: 48000.0,
+            input_channels,
+            output_channels,
             buffer_size_range: (None, None),
+            exclusive: false,
         })
     }
 
-    fn create_input_stream<Callback: SendEverywhereButOnWeb + AudioInputCallback>(
+    fn create_stream<Callback: Send + AudioCallback>(
         &self,
         stream_config: StreamConfig,
         callback: Callback,
     ) -> Result<Self::StreamHandle<Callback>, Self::Error> {
-        StreamHandle::new_input(
-            self.object_serial.clone(),
-            &self.stream_name,
-            stream_config,
-            self.stream_properties.clone(),
-            callback,
-        )
-    }
-}
-
-impl AudioOutputDevice for PipewireDevice {
-    type StreamHandle<Callback: AudioOutputCallback> = StreamHandle<Callback>;
-
-    fn default_output_config(&self) -> Result<StreamConfig, Self::Error> {
-        Ok(StreamConfig {
-            samplerate: 48000.0,
-            channels: 0b11,
-            exclusive: false,
-            buffer_size_range: (None, None),
-        })
-    }
-
-    fn create_output_stream<Callback: SendEverywhereButOnWeb + AudioOutputCallback>(
-        &self,
-        stream_config: StreamConfig,
-        callback: Callback,
-    ) -> Result<Self::StreamHandle<Callback>, Self::Error> {
-        StreamHandle::new_output(
-            self.object_serial.clone(),
-            &self.stream_name,
-            stream_config,
-            self.stream_properties.clone(),
-            callback,
-        )
+        if self.device_type.is_input() && !self.device_type.is_output() {
+            StreamHandle::new_input(&self.stream_name, stream_config, callback)
+        } else if self.device_type.is_output() {
+            StreamHandle::new_output(&self.stream_name, stream_config, callback)
+        } else {
+            Err(PipewireError::InvalidDeviceType)
+        }
     }
 }
 

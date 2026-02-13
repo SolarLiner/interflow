@@ -112,7 +112,7 @@ where
 
 impl<S: RawData> AudioBufferBase<S> {
     /// Number of samples present in this buffer.
-    pub fn num_samples(&self) -> usize {
+    pub fn num_frames(&self) -> usize {
         self.storage.ncols()
     }
 
@@ -141,7 +141,7 @@ impl<S: Data> AudioBufferBase<S> {
         let end = match range.end_bound() {
             Bound::Included(i) => *i - 1,
             Bound::Excluded(i) => *i,
-            Bound::Unbounded => self.num_samples(),
+            Bound::Unbounded => self.num_frames(),
         };
         let storage = self.storage.slice(s![.., start..end]);
         AudioRef { storage }
@@ -151,10 +151,10 @@ impl<S: Data> AudioBufferBase<S> {
     pub fn chunks(&self, size: usize) -> impl Iterator<Item = AudioRef<'_, S::Elem>> {
         let mut i = 0;
         std::iter::from_fn(move || {
-            if i >= self.num_samples() {
+            if i >= self.num_frames() {
                 return None;
             }
-            let range = i..(i + size).min(self.num_samples());
+            let range = i..(i + size).min(self.num_frames());
             i += size;
             Some(self.slice(range))
         })
@@ -165,7 +165,7 @@ impl<S: Data> AudioBufferBase<S> {
     pub fn chunks_exact(&self, size: usize) -> impl Iterator<Item = AudioRef<'_, S::Elem>> {
         let mut i = 0;
         std::iter::from_fn(move || {
-            if i + size >= self.num_samples() {
+            if i + size >= self.num_frames() {
                 return None;
             }
             let range = i..i + size;
@@ -182,10 +182,10 @@ impl<S: Data> AudioBufferBase<S> {
     pub fn windows(&self, size: usize) -> impl Iterator<Item = AudioRef<'_, S::Elem>> {
         let mut i = 0;
         std::iter::from_fn(move || {
-            if i + size >= self.num_samples() {
+            if i + size >= self.num_frames() {
                 return None;
             }
-            let range = i..(i + size).min(self.num_samples());
+            let range = i..(i + size).min(self.num_frames());
             i += 1;
             Some(self.slice(range))
         })
@@ -264,7 +264,7 @@ impl<S: DataMut> AudioBufferBase<S> {
         let end = match range.end_bound() {
             Bound::Included(i) => *i - 1,
             Bound::Excluded(i) => *i,
-            Bound::Unbounded => self.num_samples(),
+            Bound::Unbounded => self.num_frames(),
         };
         let storage = self.storage.slice_mut(s![.., start..end]);
         AudioMut { storage }
@@ -335,6 +335,22 @@ impl<S: DataOwned> AudioBufferBase<S> {
         S::Elem: Default,
     {
         Self::fill_with(channels, sample_size, |_, _| S::Elem::default())
+    }
+}
+
+impl<T> AudioRef<'static, T> {
+    pub fn empty() -> Self {
+        Self {
+            storage: ArrayView2::from_shape((0, 0), &[]).unwrap(),
+        }
+    }
+}
+
+impl<T> AudioMut<'static, T> {
+    pub fn empty() -> Self {
+        Self {
+            storage: ArrayViewMut2::from_shape((0, 0), &mut []).unwrap(),
+        }
     }
 }
 
@@ -631,7 +647,7 @@ mod tests {
     fn test_buffer_creation() {
         let buf = create_test_buffer();
         assert_eq!(buf.num_channels(), 2);
-        assert_eq!(buf.num_samples(), 4);
+        assert_eq!(buf.num_frames(), 4);
 
         // Verify sample values
         assert_eq!(buf.get_channel(0).to_vec(), vec![0.0, 1.0, 2.0, 3.0]);
@@ -644,7 +660,7 @@ mod tests {
 
         // Test immutable slice
         let slice = buf.slice(1..3);
-        assert_eq!(slice.num_samples(), 2);
+        assert_eq!(slice.num_frames(), 2);
         assert_eq!(slice.get_channel(0).to_vec(), vec![1.0, 2.0]);
 
         // Test mutable slice
@@ -688,7 +704,7 @@ mod tests {
         let buf = AudioRef::from_interleaved(&data, 2).unwrap();
 
         assert_eq!(buf.num_channels(), 2);
-        assert_eq!(buf.num_samples(), 2);
+        assert_eq!(buf.num_frames(), 2);
         assert_eq!(buf.get_channel(0).to_vec(), vec![1.0, 3.0]);
         assert_eq!(buf.get_channel(1).to_vec(), vec![2.0, 4.0]);
 

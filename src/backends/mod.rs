@@ -5,7 +5,7 @@
 //! Each backend is provided in its own submodule. Types should be public so that the user isn't
 //! limited to going through the main API if they want to choose a specific backend.
 
-use crate::{AudioDriver, AudioInputDevice, AudioOutputDevice, DeviceType};
+use crate::{AudioDevice, AudioDriver, DeviceType};
 
 #[cfg(unsupported)]
 compile_error!("Unsupported platform (supports ALSA, CoreAudio, and WASAPI)");
@@ -55,7 +55,7 @@ pub fn default_driver() -> impl AudioDriver {
 /// The default device is usually the one the user has selected in its system settings.
 pub fn default_input_device_from<Driver: AudioDriver>(driver: &Driver) -> Driver::Device
 where
-    Driver::Device: AudioInputDevice,
+    Driver::Device: AudioDevice,
 {
     driver
         .default_device(DeviceType::PHYSICAL | DeviceType::INPUT)
@@ -70,7 +70,7 @@ where
 /// driver from [`default_driver`].
 #[cfg(any(feature = "pipewire", os_alsa, os_coreaudio, os_wasapi))]
 #[allow(clippy::needless_return)]
-pub fn default_input_device() -> impl AudioInputDevice {
+pub fn default_input_device() -> impl AudioDevice {
     #[cfg(all(os_pipewire, feature = "pipewire"))]
     return default_input_device_from(&pipewire::driver::PipewireDriver::new().unwrap());
     #[cfg(all(not(all(os_pipewire, feature = "pipewire")), os_alsa))]
@@ -86,7 +86,7 @@ pub fn default_input_device() -> impl AudioInputDevice {
 /// The default device is usually the one the user has selected in its system settings.
 pub fn default_output_device_from<Driver: AudioDriver>(driver: &Driver) -> Driver::Device
 where
-    Driver::Device: AudioOutputDevice,
+    Driver::Device: AudioDevice,
 {
     driver
         .default_device(DeviceType::PHYSICAL | DeviceType::OUTPUT)
@@ -101,7 +101,7 @@ where
 /// driver from [`default_driver`].
 #[cfg(any(os_alsa, os_coreaudio, os_wasapi, feature = "pipewire"))]
 #[allow(clippy::needless_return)]
-pub fn default_output_device() -> impl AudioOutputDevice {
+pub fn default_output_device() -> impl AudioDevice {
     #[cfg(all(os_pipewire, feature = "pipewire"))]
     return default_output_device_from(&pipewire::driver::PipewireDriver::new().unwrap());
     #[cfg(all(not(all(os_pipewire, feature = "pipewire")), os_alsa))]

@@ -1,0 +1,12 @@
+[package]
+name = "interflow-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+bitflags.workspace = true
+duplicate.workspace = true
+thiserror.workspace = true
+zerocopy = { version = "0.8.39", features = ["alloc"] }
