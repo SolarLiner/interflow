@@ -16,8 +16,8 @@ pub mod alsa;
 #[cfg(os_coreaudio)]
 pub mod coreaudio;
 
-#[cfg(os_wasapi)]
-pub mod wasapi;
+#[cfg(target_os = "windows")]
+pub use interflow_wasapi as wasapi;
 
 #[cfg(all(os_pipewire, feature = "pipewire"))]
 pub mod pipewire;
