@@ -26,7 +26,7 @@
         };
         devShells.default = pkgs.clangStdenv.mkDerivation {
           name = "interflow-devshell";
-          buildInputs = buildInputs ++ nativeBuildInputs;
+          buildInputs = with pkgs; [rustc cargo] ++ buildInputs ++ nativeBuildInputs;
           inherit LIBCLANG_PATH;
         };
       }
