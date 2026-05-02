@@ -15,11 +15,11 @@ use std::sync::Arc;
 use std::thread::JoinHandle;
 use std::time::Duration;
 use std::{ops, ptr, slice};
-use windows::core::imp::CoTaskMemFree;
 use windows::core::Interface;
 use windows::Win32::Foundation;
 use windows::Win32::Foundation::{CloseHandle, HANDLE};
 use windows::Win32::Media::{Audio, KernelStreaming, Multimedia};
+use windows::Win32::System::Com::CoTaskMemFree;
 use windows::Win32::System::Threading;
 
 type EjectSignal = Arc<AtomicBool>;
@@ -171,7 +171,7 @@ impl<Callback, Iface: Interface> AudioThread<Callback, Iface> {
                 if !stream_config.exclusive {
                     assert!(!actual_format.is_null());
                     format.Format = actual_format.read_unaligned();
-                    CoTaskMemFree(actual_format.cast());
+                    CoTaskMemFree(Some(actual_format.cast()));
                     let sample_rate = format.Format.nSamplesPerSec;
                     stream_config.channels = 0u32.with_indices(0..format.Format.nChannels as _);
                     stream_config.samplerate = sample_rate as _;
@@ -502,7 +502,7 @@ pub(crate) fn is_output_config_supported(
         if !stream_config.exclusive {
             assert!(!actual_format.is_null());
             format.Format = actual_format.read_unaligned();
-            CoTaskMemFree(actual_format.cast());
+            CoTaskMemFree(Some(actual_format.cast()));
             let sample_rate = format.Format.nSamplesPerSec;
             let new_channels = 0u32.with_indices(0..format.Format.nChannels as _);
             let new_samplerate = sample_rate as f64;
