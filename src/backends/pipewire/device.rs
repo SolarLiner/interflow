@@ -6,9 +6,9 @@ use crate::{
     AudioDevice, AudioInputCallback, AudioInputDevice, AudioOutputCallback, AudioOutputDevice,
     Channel, DeviceType, SendEverywhereButOnWeb, StreamConfig,
 };
-use pipewire::context::Context;
-use pipewire::main_loop::MainLoop;
-use pipewire::properties::Properties;
+use pipewire::context::ContextRc;
+use pipewire::main_loop::MainLoopRc;
+use pipewire::properties::PropertiesBox;
 use std::borrow::Cow;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -29,7 +29,7 @@ pub struct PipewireDevice {
 
 impl PipewireDevice {
     /// Get PipeWire properties of the PipeWire device node.
-    pub fn properties(&self) -> Result<Option<Properties>, PipewireError> {
+    pub fn properties(&self) -> Result<Option<PropertiesBox>, PipewireError> {
         let Some(node_id) = self.target_node else {
             return Ok(None);
         };
@@ -147,9 +147,9 @@ impl PipewireDevice {
     }
 }
 
-fn get_node_properties(node_id: u32) -> Result<Option<Properties>, PipewireError> {
-    let mainloop = MainLoop::new(None)?;
-    let context = Context::new(&mainloop)?;
+fn get_node_properties(node_id: u32) -> Result<Option<PropertiesBox>, PipewireError> {
+    let mainloop = MainLoopRc::new(None)?;
+    let context = ContextRc::new(&mainloop, None)?;
     let core = context.connect(None)?;
     let registry = core.get_registry()?;
 
@@ -183,7 +183,7 @@ fn get_node_properties(node_id: u32) -> Result<Option<Properties>, PipewireError
             move |global| {
                 if node_id == global.id {
                     if let Some(properties) = global.props {
-                        let properties = Properties::from_dict(properties);
+                        let properties = PropertiesBox::from_dict(properties);
                         data.borrow_mut().replace(properties);
                     }
                 }

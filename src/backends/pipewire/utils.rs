@@ -1,9 +1,8 @@
 use crate::backends::pipewire::error::PipewireError;
 use crate::DeviceType;
 use libspa::utils::dict::DictRef;
-use pipewire::context::Context;
-use pipewire::main_loop::MainLoop;
 use pipewire::registry::GlobalObject;
+use pipewire::{context::ContextRc, main_loop::MainLoopRc};
 use std::cell::{Cell, RefCell};
 use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
@@ -33,8 +32,8 @@ fn get_device_object_serial(object: &GlobalObject<&DictRef>) -> Option<String> {
 }
 
 pub fn get_devices() -> Result<Vec<(u32, DeviceType, String)>, PipewireError> {
-    let mainloop = MainLoop::new(None)?;
-    let context = Context::new(&mainloop)?;
+    let mainloop = MainLoopRc::new(None)?;
+    let context = ContextRc::new(&mainloop, None)?;
     let core = context.connect(None)?;
     let registry = core.get_registry()?;
 
