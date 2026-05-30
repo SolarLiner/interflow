@@ -40,7 +40,7 @@ pub struct DuplexStream<Callback, Error> {
 
 /// Input proxy for transferring an input signal to a separate output callback to be processed as a duplex stream.
 pub struct InputProxy {
-    producer: Option<fixed_resample::ResamplingProd<f32, MAX_CHANNELS>>,
+    producer: Option<fixed_resample::ResamplingProd<f32>>,
     receive_output_samplerate: rtrb::Consumer<u32>,
     send_consumer: rtrb::Producer<fixed_resample::ResamplingCons<f32>>,
 }
@@ -92,12 +92,12 @@ impl AudioInputCallback for InputProxy {
                 num_channels.get()
             );
             let (tx, rx) = fixed_resample::resampling_channel(
-                num_channels,
+                num_channels.get(),
                 input_samplerate,
                 output_samplerate,
+                false,
                 ResamplingChannelConfig {
                     latency_seconds: 0.01,
-                    quality: fixed_resample::ResampleQuality::Low,
                     ..Default::default()
                 },
             );
@@ -192,29 +192,28 @@ impl<Callback: AudioDuplexCallback> AudioOutputCallback for DuplexCallback<Callb
                 input.out_sample_rate(),
                 input.in_sample_rate()
             );
-            self.num_input_channels = input.num_channels().get();
+            self.num_input_channels = input.num_channels();
             self.input.replace(input);
         }
 
         // Receive input from proxy
         let frames = output.buffer.num_samples();
-        let storage = if let Some(input) = &mut self.input {
-            let len = input.num_channels().get() * frames;
-            let slice = &mut self.storage_raw[..len];
-            match input.read_interleaved(slice) {
-                ReadStatus::UnderflowOccurred { .. } => {
-                    log::error!("Output resample channel underflow occurred");
-                }
-                ReadStatus::OverflowCorrected { .. } => {
-                    log::error!("Output resample channel overflow corrected");
-                }
-                _ => {}
-            }
-            AudioRef::from_interleaved(slice, input.num_channels().get()).unwrap()
-        } else {
-            AudioRef::from_interleaved(&[], self.num_input_channels).unwrap()
+        let Some(input) = &mut self.input else {
+            log::error!("Resampler not ready");
+            return;
         };
-
+        let len = input.num_channels() * frames;
+        let slice = &mut self.storage_raw[..len];
+        match input.read_interleaved(slice, false) {
+            ReadStatus::UnderflowOccurred { .. } => {
+                log::error!("Output resample channel underflow occurred");
+            }
+            ReadStatus::OverflowCorrected { .. } => {
+                log::error!("Output resample channel overflow corrected");
+            }
+            _ => {}
+        }
+        let storage = AudioRef::from_interleaved(slice, input.num_channels()).unwrap();
         let input = AudioInput {
             timestamp: context.timestamp,
             buffer: storage,
@@ -428,11 +427,6 @@ pub fn create_duplex_stream<
                     capacity_seconds: (2.0 * config.target_latency_secs as f64).max(0.5),
                     latency_seconds: config.target_latency_secs as f64,
                     subtract_resampler_delay: true,
-                    quality: if config.high_quality_resampling {
-                        fixed_resample::ResampleQuality::High
-                    } else {
-                        fixed_resample::ResampleQuality::Low
-                    },
                     ..Default::default()
                 },
             },
