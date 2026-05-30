@@ -14,11 +14,10 @@ use libspa::param::audio::{AudioFormat, AudioInfoRaw};
 use libspa::pod::Pod;
 use libspa::utils::Direction;
 use libspa_sys::{SPA_PARAM_EnumFormat, SPA_TYPE_OBJECT_Format};
-use pipewire::context::Context;
-use pipewire::keys;
-use pipewire::main_loop::MainLoop;
-use pipewire::properties::Properties;
-use pipewire::stream::{Stream, StreamFlags};
+use pipewire::stream::StreamBox;
+use pipewire::stream::StreamFlags;
+use pipewire::{context::ContextRc, main_loop::MainLoopRc};
+use pipewire::{keys, properties::PropertiesBox};
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::fmt;
@@ -142,15 +141,15 @@ impl<Callback: 'static + Send> StreamHandle<Callback> {
             pipewire::channel::channel::<StreamCommands<Callback>>();
 
         let handle = std::thread::spawn(move || {
-            let main_loop = MainLoop::new(None)?;
-            let context = Context::new(&main_loop)?;
+            let main_loop = MainLoopRc::new(None)?;
+            let context = ContextRc::new(&main_loop, None)?;
             let core = context.connect(None)?;
 
             let channels = config.channels.count();
             let channels_str = channels.to_string();
             let buffer_size = stream_buffer_size(config.buffer_size_range);
 
-            let mut properties = Properties::new();
+            let mut properties = PropertiesBox::new();
             for (key, value) in user_properties {
                 properties.insert(key, value);
             }
@@ -180,7 +179,7 @@ impl<Callback: 'static + Send> StreamHandle<Callback> {
             // type level by wrapping it in a black hole.
             let callback_holder = BlackHole::new(callback_holder);
 
-            let stream = Stream::new(&core, &name, properties)?;
+            let stream = StreamBox::new(&core, &name, properties)?;
             config.samplerate = config.samplerate.round();
             let _listener = stream
                 .add_local_listener_with_user_data(stream_inner)
