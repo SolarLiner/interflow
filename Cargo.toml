@@ -14,7 +14,7 @@ ndarray = "0.17.1"
 oneshot = { version = "0.2.1", features = ["std"] }
 rtrb = "0.3.2"
 thiserror = "2.0.17"
-zerocopy = { version = "0.8.39", optional = true }
+zerocopy = { version = "0.8.52", optional = true }
 
 [dev-dependencies]
 anyhow = "1.0.102"
