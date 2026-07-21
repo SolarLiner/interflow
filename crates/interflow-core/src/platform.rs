@@ -9,7 +9,7 @@ pub trait Platform: ExtensionProvider {
     type Device: Device<Error: Into<Self::Error>>;
     const NAME: &'static str;
 
-    fn default_device(device_type: DeviceType) -> Result<Self::Device, Self::Error>;
+    fn default_device(&self, device_type: DeviceType) -> Result<Self::Device, Self::Error>;
 
     fn list_devices(&self) -> Result<impl IntoIterator<Item = Self::Device>, Self::Error>;
 }

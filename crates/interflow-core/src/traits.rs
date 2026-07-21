@@ -87,10 +87,9 @@ const _EXTENSION_TRAIT_ASSERTS: () = {
     typeable::<dyn ExtensionProvider>();
 };
 
-/// Additional extensions for [`ExtensionProvider`] objects.
-pub trait ExtensionProviderExt: ExtensionProvider {
+impl dyn ExtensionProvider {
     /// Look up [`T`] from the extension if it is registered.
-    fn lookup<T: 'static + ?Sized>(&self) -> Option<&T> {
+    pub fn lookup<T: 'static + ?Sized>(&self) -> Option<&T> {
         let mut selector = Selector::new::<T>();
         {
             self.register(&mut selector);

@@ -1,5 +1,5 @@
 use anyhow::Result;
-use interflow::prelude::*;
+use interflow::core::{proxies::DynDevice, DeviceType};
 use util::sine::SineWave;
 
 mod util;
@@ -7,7 +7,7 @@ mod util;
 fn main() -> Result<()> {
     env_logger::init();
 
-    let device = default_output_device();
+    let device: DynDevice = todo!("default_device");
     println!("Using device {}", device.name());
     let stream = device
         .default_stream(DeviceType::OUTPUT, SineWave::new(440.0))

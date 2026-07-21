@@ -76,3 +76,16 @@ pub trait Callback: Send {
         output: AudioOutput<f32>,
     );
 }
+
+impl<F: Send + FnMut(CallbackContext, AudioInput<f32>, AudioOutput<f32>)> Callback for F {
+    fn prepare(&mut self, _: CallbackContext) {}
+
+    fn process_audio(
+        &mut self,
+        context: CallbackContext,
+        input: AudioInput<f32>,
+        output: AudioOutput<f32>,
+    ) {
+        (self)(context, input, output);
+    }
+}

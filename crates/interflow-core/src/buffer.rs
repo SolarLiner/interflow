@@ -325,6 +325,12 @@ impl<T: Copy> FrameMut<'_, T> {
             self.set(channel, *value);
         }
     }
+
+    pub fn set_mono(&mut self, value: T) {
+        for ch in 0..self.buffer.channels() {
+            self.buffer[ch][self.frame] = value;
+        }
+    }
 }
 
 struct IterFramesMut<'a, T> {
