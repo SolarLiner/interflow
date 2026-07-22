@@ -1,4 +1,4 @@
-use interflow::audio_buffer::AudioRef;
+use interflow::core::buffer::AudioRef;
 
 #[derive(Debug, Copy, Clone)]
 pub struct PeakMeter {
@@ -42,10 +42,9 @@ impl PeakMeter {
     }
 
     pub fn process_buffer(&mut self, buffer: AudioRef<f32>) -> f32 {
-        let buffer_duration = buffer.num_frames() as f32 * self.dt;
-        let peak_lin = buffer
-            .channels()
-            .flat_map(|ch| ch.iter().copied().max_by(f32::total_cmp))
+        let buffer_duration = buffer.frames() as f32 * self.dt;
+        let peak_lin = (0..buffer.channels())
+            .flat_map(|ch| buffer[ch].iter().copied().max_by(f32::total_cmp))
             .max_by(f32::total_cmp)
             .unwrap_or(0.);
         self.last_out = peak_lin.max(self.last_out * f32::exp(-self.decay * buffer_duration));

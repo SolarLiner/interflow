@@ -9,7 +9,6 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::thread;
 
-pub mod enumerate;
 pub mod meter;
 pub mod sine;
 
