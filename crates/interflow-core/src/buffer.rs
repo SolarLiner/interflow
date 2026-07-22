@@ -281,6 +281,13 @@ impl<T> AudioBuffer<T> {
             .get_disjoint_mut(indices.map(|i| i * self.frames.get()..(i + 1) * self.frames.get()))
             .unwrap()
     }
+
+    pub fn set_mono(&mut self, frame: usize, value: T)
+    where
+        T: Copy,
+    {
+        self.frame_mut(frame).set_mono(value);
+    }
 }
 
 #[duplicate::duplicate_item(
@@ -392,6 +399,14 @@ name;
 [AudioMut];
 )]
 impl<T> name<'_, T> {
+    pub fn frames(&self) -> usize {
+        self.frame_slice.1 - self.frame_slice.0
+    }
+
+    pub fn channels(&self) -> usize {
+        self.buffer.channels()
+    }
+
     pub fn frame(&self, index: usize) -> FrameRef<'_, T> {
         self.buffer.frame(self.frame_slice.0 + index)
     }
@@ -415,5 +430,24 @@ impl<T> AudioMut<'_, T> {
     pub fn channel_mut(&mut self, channel: usize) -> &mut [T] {
         let slice = self.buffer.channel_mut(channel);
         &mut slice[self.frame_slice.0..self.frame_slice.1]
+    }
+
+    pub fn set_mono(&mut self, frame: usize, value: T)
+    where
+        T: Copy,
+    {
+        self.frame_mut(frame).set_mono(value);
+    }
+
+    pub fn change_amplitude(&mut self, factor: T)
+    where
+        T: Copy + ops::MulAssign<T>,
+    {
+        let num_channels = self.channels();
+        for frame in &mut self.buffer.data
+            [num_channels * self.frame_slice.0..num_channels * self.frame_slice.1]
+        {
+            *frame *= factor;
+        }
     }
 }

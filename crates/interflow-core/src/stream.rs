@@ -3,6 +3,7 @@ use crate::device::ResolvedStreamConfig;
 use crate::timing::Timestamp;
 use crate::traits::ExtensionProvider;
 use bitflags::bitflags;
+use std::any::Any;
 
 pub trait StreamProxy: Send + Sync + ExtensionProvider {}
 

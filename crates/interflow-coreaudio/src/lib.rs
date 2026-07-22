@@ -78,6 +78,7 @@ pub enum Error {
     /// The scope given to an audio device is invalid.
     #[error("Invalid scope {0:?}")]
     InvalidScope(Scope),
+    /// No matching devices for the given type.
     #[error("No matching devices for type: {0:?}")]
     NoMatchingDevices(DeviceType),
 }

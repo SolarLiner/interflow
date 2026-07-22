@@ -6,7 +6,11 @@ pub mod stream;
 pub mod timing;
 pub mod traits;
 
+use std::rc::Rc;
+
 use bitflags::bitflags;
+
+use crate::proxies::PlatformProxy;
 
 bitflags! {
     /// Represents the types/capabilities of an audio device.

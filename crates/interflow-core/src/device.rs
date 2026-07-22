@@ -66,7 +66,7 @@ pub struct ResolvedStreamConfig {
 /// and depending on the driver, can be duplex devices which can provide both of them at the same
 /// time natively.
 pub trait Device: ExtensionProvider {
-    type Error: Send + Sync + std::error::Error;
+    type Error: Send + Sync + 'static + std::error::Error;
     type StreamHandle<Callback: stream::Callback>: StreamHandle<Callback, Error: Into<Self::Error>>;
 
     fn name(&self) -> Cow<'_, str>;

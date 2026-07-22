@@ -10,6 +10,7 @@ rust-version = "1.85"
 license = "MIT"
 
 [workspace.dependencies]
+anyhow = "1.0.104"
 bitflags = "2.10.0"
 duplicate = "2.0.1"
 interflow-core = { path = "crates/interflow-core" }
@@ -25,10 +26,11 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+anyhow.workspace = true
 interflow-core.workspace = true
 
 [dev-dependencies]
-anyhow = "1.0.100"
+anyhow.workspace = true
 env_logger = "0.11.8"
 indicatif = "0.18.3"
 
