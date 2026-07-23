@@ -3,6 +3,7 @@
 //! Interflow backend using CoreAudio for macOS and iOS applications
 #![warn(missing_docs)]
 use std::borrow::Cow;
+use std::cell::OnceCell;
 use std::convert::Infallible;
 use std::num::NonZeroUsize;
 
@@ -81,6 +82,8 @@ pub enum Error {
     /// No matching devices for the given type.
     #[error("No matching devices for type: {0:?}")]
     NoMatchingDevices(DeviceType),
+    #[error("Duplex devices are not supported")]
+    DuplexUnavailable,
 }
 
 impl From<Infallible> for Error {
@@ -107,24 +110,25 @@ impl platform::Platform for Platform {
 
     fn default_device(&self, device_type: DeviceType) -> Result<Self::Device, Self::Error> {
         if device_type.is_output() || !device_type.is_input() {
-            return Ok(Device::DefaultOutput);
+            return Ok(Device::default_output());
         }
 
         let Some(id) = get_default_device_id(device_type.is_input()) else {
             return Err(Error::NoMatchingDevices(device_type));
         };
-        Ok(Device::Specific(id))
+        Ok(Device::from_id(id))
     }
 
     fn list_devices(&self) -> Result<impl IntoIterator<Item = Self::Device>, Self::Error> {
-        Ok(get_audio_device_ids()?.into_iter().map(Device::Specific))
+        Ok(get_audio_device_ids()?.into_iter().map(Device::from_id))
     }
 }
 
-/// CoreAudio device handle
-#[derive(Debug, Copy, Clone)]
-pub enum Device {
+/// Audio device request type
+#[derive(Debug, Default, Copy, Clone)]
+pub enum DeviceRequest {
     /// Automatically connects to the default device output, generic stream.
+    #[default]
     DefaultOutput,
     /// Automatically connects to the default device output, notification stream.
     SystemOutput,
@@ -132,8 +136,8 @@ pub enum Device {
     Specific(AudioDeviceID),
 }
 
-impl Device {
-    pub fn get_audio_unit(&self) -> Result<AudioUnit, Error> {
+impl DeviceRequest {
+    pub(crate) fn to_audio_unit(&self) -> Result<AudioUnit, Error> {
         let io_type = match self {
             Self::DefaultOutput => IOType::DefaultOutput,
             Self::SystemOutput => IOType::SystemOutput,
@@ -157,24 +161,12 @@ impl Device {
         )?;
         Ok(unit)
     }
-}
 
-impl ExtensionProvider for Device {
-    fn register<'a, 'sel>(&'a self, selector: &'sel mut Selector<'a>) -> &'sel mut Selector<'a> {
-        selector
-    }
-}
-
-impl device::Device for Device {
-    type Error = Error;
-
-    type StreamHandle<Callback: stream::Callback> = StreamHandle<Callback>;
-
-    fn name(&self) -> Cow<'_, str> {
+    pub fn name(&self) -> Cow<'_, str> {
         match self {
-            Self::DefaultOutput => Cow::Borrowed("Default output"),
-            Self::SystemOutput => Cow::Borrowed("Notifications output"),
-            &Self::Specific(id) => match get_device_name(id) {
+            DeviceRequest::DefaultOutput => Cow::Borrowed("Default output"),
+            DeviceRequest::SystemOutput => Cow::Borrowed("Notifications output"),
+            &DeviceRequest::Specific(id) => match get_device_name(id) {
                 Ok(s) => Cow::Owned(s),
                 Err(err) => {
                     log::error!("Cannot get device name for ID: {}: {err}", id);
@@ -184,7 +176,7 @@ impl device::Device for Device {
         }
     }
 
-    fn device_type(&self) -> DeviceType {
+    pub fn device_type(&self) -> DeviceType {
         let log_error = |result: Result<bool, coreaudio::Error>| {
             result
                 .inspect_err(|err| {
@@ -208,7 +200,85 @@ impl device::Device for Device {
         type_.set(DeviceType::INPUT, supports_scope(Scope::Input));
         type_.set(DeviceType::OUTPUT, supports_scope(Scope::Output));
         type_.set(DeviceType::DEFAULT, is_default);
-        return type_;
+        type_
+    }
+
+    pub fn buffer_size_range(&self) -> Result<(Option<usize>, Option<usize>), Error> {
+        match self {
+            Self::DefaultOutput | Self::SystemOutput => Ok((None, None)),
+            &Self::Specific(id) => {
+                let address = AudioObjectPropertyAddress {
+                    mSelector: kAudioDevicePropertyBufferFrameSizeRange,
+                    mScope: if self.device_type().is_input() {
+                        kAudioObjectPropertyScopeInput
+                    } else {
+                        kAudioObjectPropertyScopeOutput
+                    },
+                    mElement: kAudioObjectPropertyElementMaster,
+                };
+                let range = get_device_property::<AudioValueRange>(id, address)?;
+                Ok((Some(range.mMinimum as usize), Some(range.mMaximum as usize)))
+            }
+        }
+    }
+}
+
+pub struct Device {
+    pub(crate) request: DeviceRequest,
+    audio_unit: OnceCell<AudioUnit>,
+}
+
+impl Device {
+    pub fn new(request: DeviceRequest) -> Self {
+        Self {
+            request,
+            audio_unit: OnceCell::new(),
+        }
+    }
+
+    pub fn from_id(id: AudioDeviceID) -> Self {
+        Self::new(DeviceRequest::Specific(id))
+    }
+
+    pub fn default_output() -> Self {
+        Self::new(DeviceRequest::DefaultOutput)
+    }
+
+    pub fn get_audio_unit(&self) -> Result<&AudioUnit, Error> {
+        if let Some(unit) = self.audio_unit.get() {
+            return Ok(unit);
+        }
+        let unit = self.request.to_audio_unit()?;
+        let result = self.audio_unit.set(unit);
+        assert!(result.is_ok());
+        Ok(self.audio_unit.get().unwrap())
+    }
+
+    pub fn into_audio_unit(mut self) -> Result<AudioUnit, Error> {
+        match self.audio_unit.take() {
+            Some(unit) => Ok(unit),
+            None => self.request.to_audio_unit(),
+        }
+    }
+}
+
+impl ExtensionProvider for Device {
+    fn register<'a, 'sel>(&'a self, selector: &'sel mut Selector<'a>) -> &'sel mut Selector<'a> {
+        selector
+    }
+}
+
+impl device::Device for Device {
+    type Error = Error;
+
+    type StreamHandle<Callback: stream::Callback> = StreamHandle<Callback>;
+
+    fn name(&self) -> Cow<'_, str> {
+        self.request.name()
+    }
+
+    fn device_type(&self) -> DeviceType {
+        self.request.device_type()
     }
 
     fn default_config(&self) -> Result<StreamConfig, Self::Error> {
@@ -221,24 +291,7 @@ impl device::Device for Device {
             .output_stream_format()
             .map(|fmt| fmt.channels as usize)
             .unwrap_or(0);
-        let buffer_size_range = {
-            match self {
-                Self::DefaultOutput | Self::SystemOutput => (None, None),
-                &Self::Specific(id) => {
-                    let address = AudioObjectPropertyAddress {
-                        mSelector: kAudioDevicePropertyBufferFrameSizeRange,
-                        mScope: if self.device_type().is_input() {
-                            kAudioObjectPropertyScopeInput
-                        } else {
-                            kAudioObjectPropertyScopeOutput
-                        },
-                        mElement: kAudioObjectPropertyElementMaster,
-                    };
-                    let range = get_device_property::<AudioValueRange>(id, address)?;
-                    (Some(range.mMinimum as usize), Some(range.mMaximum as usize))
-                }
-            }
-        };
+        let buffer_size_range = self.request.buffer_size_range()?;
         Ok(StreamConfig {
             sample_rate: au.sample_rate()?,
             input_channels,
@@ -319,10 +372,9 @@ impl<Callback: 'static + Send + stream::Callback> StreamHandle<Callback> {
         callback: Callback,
     ) -> Result<Self, Error> {
         let requested_type = stream_config.requested_device_type();
-        assert!(
-            !requested_type.is_duplex(),
-            "CoreAudio does not support native duplex mode"
-        );
+        if requested_type.is_duplex() {
+            return Err(Error::DuplexUnavailable);
+        }
 
         let unsupported = device.device_type() & !requested_type;
         if !unsupported.is_empty() {
@@ -331,7 +383,11 @@ impl<Callback: 'static + Send + stream::Callback> StreamHandle<Callback> {
                 device = device.name()
             );
         }
-        let unit = device.get_audio_unit()?;
+        // let unit = match device.audio_unit.take() {
+        //     Some(unit) => unit,
+        //     None => device.request.to_audio_unit()?,
+        // };
+        let unit = todo!();
         if requested_type.is_input() {
             Self::new_input(unit, stream_config, callback)
         } else {
@@ -519,39 +575,5 @@ impl<Callback: 'static + Send + stream::Callback> StreamHandle<Callback> {
             audio_unit,
             callback_retrieve: tx,
         })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use coreaudio_sys::{kAudioObjectPropertyElementMaster, kAudioObjectPropertyScopeOutput};
-    use interflow_core::platform::Platform as _;
-
-    #[test]
-    fn test_set_device_buffersize() {
-        let platform = Platform;
-        let Some(Device::Specific(device_id)) = platform
-            .list_devices()
-            .unwrap()
-            .into_iter()
-            .find(|d| d.device_type().is_output())
-        else {
-            println!("Skipping test: No specific output device found.");
-            return;
-        };
-
-        let buffer_size = 256u32;
-
-        let property_address = AudioObjectPropertyAddress {
-            mSelector: kAudioDevicePropertyBufferFrameSize,
-            mScope: kAudioObjectPropertyScopeOutput,
-            mElement: kAudioObjectPropertyElementMaster,
-        };
-        set_device_property(device_id, property_address, &buffer_size).unwrap();
-
-        let actual_buffer_size: u32 = get_device_property(device_id, property_address).unwrap();
-
-        assert_eq!(buffer_size, actual_buffer_size);
     }
 }

@@ -7,10 +7,14 @@ pub fn enumerate_devices(platform: &dyn PlatformProxy) -> anyhow::Result<()> {
     for (s, device_type) in [("Input", DeviceType::INPUT), ("Output", DeviceType::OUTPUT)] {
         let device_type = device_type | DeviceType::PHYSICAL;
         eprint!("\t{s}:\t");
-        let device = platform.default_device(device_type)?;
+        let Ok(device) = platform.default_device(device_type) else {
+            println!("no default device");
+            continue;
+        };
+        println!("{}", device.name());
     }
 
-    eprintln!("All devices");
+    eprintln!("\nAll devices");
     for device in platform.list_devices()? {
         eprintln!("\t{} ({:?})", device.name(), device.device_type());
     }
@@ -18,6 +22,7 @@ pub fn enumerate_devices(platform: &dyn PlatformProxy) -> anyhow::Result<()> {
 }
 
 fn main() -> anyhow::Result<()> {
+    env_logger::init();
     let platform = default_platform();
     enumerate_devices(&*platform)?;
     Ok(())
