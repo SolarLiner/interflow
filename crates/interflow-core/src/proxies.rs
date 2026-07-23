@@ -3,7 +3,7 @@ use crate::platform::Platform;
 use crate::stream::{AudioInput, AudioOutput, CallbackContext};
 use crate::traits::ExtensionProvider;
 use crate::{stream, DeviceType};
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::any::{Any, TypeId};
 use std::borrow::Cow;
 use std::marker::PhantomData;
@@ -97,7 +97,7 @@ where
         config: StreamConfig,
         callback: DynCallback,
     ) -> Result<RawStreamHandle> {
-        let handle = Device::create_stream(self, config, callback)?;
+        let handle = Device::create_stream(self, config, callback).context("Cannot open stream")?;
         Ok(RawStreamHandle::from_handle(handle))
     }
 
@@ -106,7 +106,8 @@ where
         requested_type: DeviceType,
         callback: DynCallback,
     ) -> Result<RawStreamHandle> {
-        let handle = Device::default_stream(self, requested_type, callback)?;
+        let handle =
+            Device::default_stream(self, requested_type, callback).context("Cannot open stream")?;
         Ok(RawStreamHandle::from_handle(handle))
     }
 }
