@@ -138,28 +138,29 @@ pub enum DeviceRequest {
 
 impl DeviceRequest {
     pub(crate) fn to_audio_unit(&self) -> Result<AudioUnit, Error> {
-        let io_type = match self {
-            Self::DefaultOutput => IOType::DefaultOutput,
-            Self::SystemOutput => IOType::SystemOutput,
-            Self::Specific(..) => IOType::HalOutput,
-        };
-        let mut unit = AudioUnit::new(io_type)?;
-        let device_type = self.device_type();
-        let value = if device_type.is_input() { 1u32 } else { 0 };
-        unit.set_property(
-            kAudioOutputUnitProperty_EnableIO,
-            Scope::Input,
-            Element::Input,
-            Some(&value),
-        )?;
-        let value = if device_type.is_output() { 1u32 } else { 0 };
-        unit.set_property(
-            kAudioOutputUnitProperty_EnableIO,
-            Scope::Output,
-            Element::Output,
-            Some(&value),
-        )?;
-        Ok(unit)
+        match self {
+            Self::DefaultOutput => Ok(AudioUnit::new(IOType::DefaultOutput)?),
+            Self::SystemOutput => Ok(AudioUnit::new(IOType::SystemOutput)?),
+            Self::Specific(id) => {
+                let mut unit = AudioUnit::new(IOType::HalOutput)?;
+                let device_type = self.device_type();
+                let value = if device_type.is_input() { 1u32 } else { 0 };
+                unit.set_property(
+                    kAudioOutputUnitProperty_EnableIO,
+                    Scope::Input,
+                    Element::Input,
+                    Some(&value),
+                )?;
+                let value = if device_type.is_output() { 1u32 } else { 0 };
+                unit.set_property(
+                    kAudioOutputUnitProperty_EnableIO,
+                    Scope::Output,
+                    Element::Output,
+                    Some(&value),
+                )?;
+                Ok(unit)
+            }
+        }
     }
 
     pub fn name(&self) -> Cow<'_, str> {
@@ -383,11 +384,7 @@ impl<Callback: 'static + Send + stream::Callback> StreamHandle<Callback> {
                 device = device.name()
             );
         }
-        // let unit = match device.audio_unit.take() {
-        //     Some(unit) => unit,
-        //     None => device.request.to_audio_unit()?,
-        // };
-        let unit = todo!();
+        let unit = device.request.to_audio_unit()?;
         if requested_type.is_input() {
             Self::new_input(unit, stream_config, callback)
         } else {
