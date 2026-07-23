@@ -4,12 +4,16 @@
 // Unfortunate consequence is that we lose the genuine unused warnings.
 #![allow(unused)]
 
+use crate::util::meter::Metered;
+use dialoguer::console::Term;
 use indicatif::{ProgressBar, ProgressStyle};
+use interflow_core::stream;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::thread;
 
 pub mod meter;
+pub mod noop;
 pub mod sine;
 
 #[derive(Debug)]
@@ -67,4 +71,27 @@ pub fn display_peakmeter(value: Arc<AtomicF32>) -> anyhow::Result<()> {
 pub fn normalize(min: f32, max: f32, value: f32) -> f32 {
     let range = max - min;
     (value - min) / range
+}
+
+pub fn prepare_display<C: stream::Callback>(
+    callback: C,
+) -> (meter::Metered<C>, impl Fn() -> anyhow::Result<()>) {
+    let meter = Metered::new(callback, 0.5);
+    let shared = meter.shared();
+    let display = move || {
+        let term = Term::stdout();
+        loop {
+            let elapsed = shared.timestamp.as_timestamp().as_seconds();
+            let inp = shared.input.load(Ordering::Relaxed);
+            let inp = 20.0 * inp.log10();
+            let out = shared.output.load(Ordering::Relaxed);
+            let out = 20.0 * out.log10();
+            term.write_str(&format!(
+                "Elapsed: {elapsed:3.2} s\tInput: {inp:2.1} dB\tOutput: {out:2.1} dB"
+            ))?;
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            term.clear_line()?;
+        }
+    };
+    (meter, display)
 }
