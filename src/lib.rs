@@ -13,7 +13,8 @@ pub mod backends;
 pub mod prelude {
     pub use super::{default_device, default_platform, default_stream};
     pub use interflow_core::prelude::*;
-    pub use interflow_coreaudio::prelude::*;
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    pub use interflow_coreaudio::prelude as coreaudio;
 }
 
 /// Return the default platform.

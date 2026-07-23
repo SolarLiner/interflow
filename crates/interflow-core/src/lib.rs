@@ -13,7 +13,7 @@ pub mod prelude {
     pub use crate::buffer::{AudioBuffer, AudioMut, AudioRef};
     pub use crate::device::{self, Device as _};
     pub use crate::platform;
-    pub use crate::proxies::{self, CreateStreamExt, DeviceProxy, PlatformProxy};
+    pub use crate::proxies;
     pub use crate::stream::{
         self, AudioInput, AudioOutput, ChannelFlags, StreamHandle, StreamLatency, StreamProxy,
     };
@@ -75,4 +75,15 @@ impl DeviceType {
     pub fn is_duplex(&self) -> bool {
         self.contains(Self::DUPLEX)
     }
+}
+
+/// Adds compile-time checks that the given trait is dyn-safe.
+#[macro_export]
+macro_rules! dyn_compatible {
+    ($(<$($generic:ident),+>)? $trait_:ident $(<$($(:$generic_name:ident =)?$generic_type:ident),+>)?) => {
+        const _: () = {
+            #[expect(unused)]
+            const fn typeable$(<$($generic),*>)?(_: &dyn $trait_ $(<$($($generic_name =)? $generic_type),*>)?) {}
+        };
+    };
 }

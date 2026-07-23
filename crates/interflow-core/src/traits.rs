@@ -1,3 +1,4 @@
+use crate::dyn_compatible;
 use std::any::TypeId;
 use std::marker::PhantomData;
 use std::mem::MaybeUninit;
@@ -136,10 +137,7 @@ pub trait ExtensionProvider: 'static {
     }
 }
 
-const _EXTENSION_TRAIT_ASSERTS: () = {
-    const fn typeable<T: ?Sized>() {}
-    typeable::<dyn ExtensionProvider>();
-};
+dyn_compatible!(ExtensionProvider);
 
 pub trait ExtensionProviderExt: ExtensionProvider {
     /// Look up [`T`] from the extension if it is registered. Returns an immutable reference.
@@ -163,4 +161,46 @@ impl<E: ?Sized + ExtensionProvider> ExtensionProviderExt for E {
         self.register_mut(&mut selector);
         selector.finish_mut::<T>()
     }
+}
+
+pub trait Enumerator {
+    type Item;
+    fn len(&self) -> usize;
+    fn at(&self, index: usize) -> Option<Self::Item>;
+}
+
+impl<'a, T> Enumerator for &'a dyn Enumerator<Item = T> {
+    type Item = T;
+
+    fn len(&self) -> usize {
+        (*self).len()
+    }
+
+    fn at(&self, index: usize) -> Option<Self::Item> {
+        (*self).at(index)
+    }
+}
+
+pub struct Enumerate<E: Enumerator> {
+    enumerator: E,
+    i: usize,
+}
+
+impl<E: Enumerator> Iterator for Enumerate<E> {
+    type Item = E::Item;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let result = self.enumerator.at(self.i);
+        self.i += 1;
+        result
+    }
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let len = self.enumerator.len();
+        (len, Some(len))
+    }
+}
+
+pub fn enumerate<T>(enumerator: &dyn Enumerator<Item = T>) -> impl use<'_, T> + Iterator<Item = T> {
+    Enumerate { enumerator, i: 0 }
 }

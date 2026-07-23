@@ -1,6 +1,6 @@
 use crate::stream::{self, StreamHandle};
-use crate::traits::ExtensionProvider;
-use crate::DeviceType;
+use crate::traits::{Enumerate, Enumerator, ExtensionProvider};
+use crate::{dyn_compatible, DeviceType};
 use std::borrow::Cow;
 
 /// Configuration for an audio stream.
@@ -127,13 +127,19 @@ pub struct Channel<'a> {
 }
 
 pub trait NamedChannels {
-    fn channel_map(&self) -> impl Iterator<Item = Channel<'_>>;
+    fn enumerate_channels(&self) -> Enumerate<&'_ dyn Enumerator<Item = Channel<'_>>>;
 }
 
+dyn_compatible!(NamedChannels);
+
 pub trait ConfigurationList {
-    fn enumerate_configurations(&self) -> impl Iterator<Item = StreamConfig>;
+    fn enumerate_configurations(&self) -> Enumerate<&'_ dyn Enumerator<Item = StreamConfig>>;
 }
+
+dyn_compatible!(ConfigurationList);
 
 pub trait DeviceState {
     fn connected(&self) -> bool;
 }
+
+dyn_compatible!(DeviceState);
