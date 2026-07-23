@@ -9,12 +9,19 @@ use interflow_core::proxies::CreateStreamExt;
 
 pub mod backends;
 
+/// Prelude module. Import all with `interflow::prelude::*`.
+pub mod prelude {
+    pub use super::{default_device, default_platform, default_stream};
+    pub use interflow_core::prelude::*;
+    pub use interflow_coreaudio::prelude::*;
+}
+
 /// Return the default platform.
 /// The platform is selected automatically based on your available and enabled backends.
 #[allow(unreachable_code)]
 pub fn default_platform() -> core::proxies::DynPlatform {
     #[cfg(any(target_os = "macos", target_os = "ios"))]
-    return Rc::new(backends::coreaudio::Platform);
+    return Rc::new(interflow_coreaudio::platform::Platform);
     todo!("null backend")
 }
 

@@ -1,5 +1,4 @@
-use interflow::core::{proxies::PlatformProxy, DeviceType};
-use interflow::default_platform;
+use interflow::prelude::*;
 
 pub fn enumerate_devices(platform: &dyn PlatformProxy) -> anyhow::Result<()> {
     eprintln!("Driver name   : {}", platform.name());

@@ -1,6 +1,5 @@
 use anyhow::Result;
-use interflow::core::DeviceType;
-use interflow_core::stream::StreamHandle;
+use interflow::prelude::*;
 use util::sine::SineWave;
 
 mod util;
@@ -8,7 +7,7 @@ mod util;
 fn main() -> Result<()> {
     env_logger::init();
 
-    let stream = interflow::default_stream(
+    let stream = default_stream(
         DeviceType::OUTPUT | DeviceType::PHYSICAL,
         SineWave::new(440.0),
     )?;

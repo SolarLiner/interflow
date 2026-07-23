@@ -1,3 +1,5 @@
+use bitflags::bitflags;
+
 pub mod buffer;
 pub mod device;
 pub mod platform;
@@ -6,11 +8,18 @@ pub mod stream;
 pub mod timing;
 pub mod traits;
 
-use std::rc::Rc;
-
-use bitflags::bitflags;
-
-use crate::proxies::PlatformProxy;
+pub mod prelude {
+    pub use super::DeviceType;
+    pub use crate::buffer::{AudioBuffer, AudioMut, AudioRef};
+    pub use crate::device::{self, Device as _};
+    pub use crate::platform;
+    pub use crate::proxies::{self, CreateStreamExt, DeviceProxy, PlatformProxy};
+    pub use crate::stream::{
+        self, AudioInput, AudioOutput, ChannelFlags, StreamHandle, StreamLatency, StreamProxy,
+    };
+    pub use crate::timing::{self, *};
+    pub use crate::traits::{self, *};
+}
 
 bitflags! {
     /// Represents the types/capabilities of an audio device.
