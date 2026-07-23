@@ -161,7 +161,7 @@ impl<Callback: 'static + Send + stream::Callback> Handle<Callback> {
                 NonZeroUsize::new(1).unwrap(),
                 NonZeroUsize::new(channels as _).unwrap(),
             );
-            let dummy_output = AudioOutput {
+            let mut dummy_output = AudioOutput {
                 buffer: dummy_buf.as_mut(),
                 timestamp: Timestamp::new(asbd.mSampleRate),
                 channel_flags: &[],
@@ -174,8 +174,8 @@ impl<Callback: 'static + Send + stream::Callback> Handle<Callback> {
                         timestamp,
                         stream_proxy: &STREAM_PROXY,
                     },
-                    input,
-                    dummy_output,
+                    &input,
+                    &mut dummy_output,
                 );
             }
             Ok(())
@@ -244,7 +244,7 @@ impl<Callback: 'static + Send + stream::Callback> Handle<Callback> {
                 channel_flags: &[],
             };
 
-            let output = AudioOutput {
+            let mut output = AudioOutput {
                 buffer: buffer.as_mut(),
                 timestamp,
                 channel_flags: &[],
@@ -257,8 +257,8 @@ impl<Callback: 'static + Send + stream::Callback> Handle<Callback> {
                         timestamp,
                         stream_proxy: &STREAM_PROXY,
                     },
-                    dummy_input,
-                    output,
+                    &dummy_input,
+                    &mut output,
                 );
                 for (out_ch, in_ch) in args.data.channels_mut().zip(buffer.iter_channels()) {
                     out_ch.copy_from_slice(in_ch);

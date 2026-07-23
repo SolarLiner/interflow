@@ -116,7 +116,7 @@ pub struct DynCallback {
     type_id: TypeId,
     handle: NonNull<()>,
     prepare: unsafe fn(NonNull<()>, CallbackContext),
-    process_audio: unsafe fn(NonNull<()>, CallbackContext, AudioInput<f32>, AudioOutput<f32>),
+    process_audio: unsafe fn(NonNull<()>, CallbackContext, &AudioInput<f32>, &mut AudioOutput<f32>),
 }
 
 unsafe impl Send for DynCallback {}
@@ -151,8 +151,8 @@ impl stream::Callback for DynCallback {
     fn process_audio(
         &mut self,
         context: CallbackContext,
-        input: AudioInput<f32>,
-        output: AudioOutput<f32>,
+        input: &AudioInput<f32>,
+        output: &mut AudioOutput<f32>,
     ) {
         unsafe { (self.process_audio)(self.handle, context, input, output) }
     }

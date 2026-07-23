@@ -14,13 +14,9 @@ impl Callback for SineWave {
     fn process_audio(
         &mut self,
         context: CallbackContext,
-        _input: AudioInput<f32>,
-        mut output: AudioOutput<f32>,
+        input: &AudioInput<f32>,
+        output: &mut AudioOutput<f32>,
     ) {
-        eprintln!(
-            "Callback called, timestamp: {:2.3} s",
-            context.timestamp.as_seconds()
-        );
         let sr = context.timestamp.samplerate as f32;
         for i in 0..output.buffer.frames() {
             output.buffer.set_mono(i, self.next_sample());
