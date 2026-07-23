@@ -20,6 +20,7 @@ pub type DynDevice = Rc<dyn DeviceProxy>;
 pub trait PlatformProxy: ExtensionProvider {
     fn name(&self) -> Cow<'static, str>;
     fn list_devices(&self) -> Result<Vec<DynDevice>>;
+    fn list_devices_matching(&self, device_type: DeviceType) -> Result<Vec<DynDevice>>;
     fn default_device(&self, device_type: DeviceType) -> Result<DynDevice>;
 }
 
@@ -38,6 +39,16 @@ where
             Platform::list_devices(self)?
                 .into_iter()
                 .map(|dev| Rc::new(dev) as DynDevice),
+        ))
+    }
+
+    fn list_devices_matching(&self, device_type: DeviceType) -> Result<Vec<DynDevice>> {
+        Ok(Vec::from_iter(
+            Platform::list_devices(self)?.into_iter().filter_map(|dev| {
+                Device::device_type(&dev)
+                    .contains(device_type)
+                    .then(|| Rc::new(dev) as DynDevice)
+            }),
         ))
     }
 

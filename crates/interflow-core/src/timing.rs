@@ -134,6 +134,13 @@ pub struct AtomicTimestamp {
 }
 
 impl AtomicTimestamp {
+    /// Create a new [`AtomicTimestamp`] with zeroed values.
+    pub fn zeroed() -> Self {
+        Self {
+            samplerate: AtomicU64::new(0),
+            counter: AtomicU64::new(0),
+        }
+    }
     /// Update the contents with the provided [`Timestamp`].
     pub fn update(&self, ts: Timestamp) {
         self.samplerate.store(

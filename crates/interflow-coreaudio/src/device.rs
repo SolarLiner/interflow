@@ -6,25 +6,35 @@ use coreaudio::audio_unit::macos_helpers::{
 };
 use coreaudio::audio_unit::{AudioUnit, Element, IOType, Scope};
 use coreaudio_sys::{
-    kAudioDevicePropertyBufferFrameSizeRange, kAudioObjectPropertyElementMaster,
-    kAudioObjectPropertyScopeInput, kAudioObjectPropertyScopeOutput,
-    kAudioOutputUnitProperty_EnableIO, AudioDeviceID, AudioObjectPropertyAddress, AudioValueRange,
+    kAudioDevicePropertyBufferFrameSizeRange, kAudioHardwarePropertyDefaultInputDevice,
+    kAudioHardwarePropertyDefaultOutputDevice, kAudioHardwarePropertyDefaultSystemOutputDevice,
+    kAudioObjectPropertyElementMaster, kAudioObjectPropertyScopeGlobal,
+    kAudioObjectPropertyScopeInput, kAudioObjectPropertyScopeOutput, kAudioObjectSystemObject,
+    kAudioOutputUnitProperty_CurrentDevice, kAudioOutputUnitProperty_EnableIO, AudioDeviceID,
+    AudioObjectGetPropertyData, AudioObjectID, AudioObjectPropertyAddress, AudioValueRange,
 };
 use interflow_core::device::StreamConfig;
 use interflow_core::traits::{ExtensionProvider, Selector};
 use interflow_core::{device, stream, DeviceType};
 use std::borrow::Cow;
 use std::cell::OnceCell;
+use std::ffi::c_uint;
+use std::ptr::null;
 
 /// Audio device request type. CoreAudio has separate code paths for getting the default device, and getting a
 /// specific ID. Furthermore, "default device"s are automatically re-routed when the user changes the default device.
 #[derive(Debug, Default, Copy, Clone)]
 pub enum DeviceRequest {
-    /// Automatically connects to the default device output, generic stream.
+    /// Automatically connects to the default output device, generic stream.
     #[default]
     DefaultOutput,
-    /// Automatically connects to the default device output, notification stream.
+    /// Automatically connects to the default output device, notification stream.
     SystemOutput,
+    /// Automatically connects to the default input device.
+    DefaultInput,
+    /// Automatically connects to the default voice input device, using the system's voice enhancement processing if
+    /// enabled.
+    VoiceInput,
     /// Connect to this specific output.
     Specific(AudioDeviceID),
 }
@@ -34,9 +44,37 @@ impl DeviceRequest {
         match self {
             Self::DefaultOutput => Ok(AudioUnit::new(IOType::DefaultOutput)?),
             Self::SystemOutput => Ok(AudioUnit::new(IOType::SystemOutput)?),
-            &Self::Specific(..) => {
-                // TODO: Use provided ID
+            Self::VoiceInput => Ok(AudioUnit::new(IOType::VoiceProcessingIO)?),
+            Self::DefaultInput => {
                 let mut unit = AudioUnit::new(IOType::HalOutput)?;
+                unit.set_property(
+                    kAudioOutputUnitProperty_CurrentDevice,
+                    Scope::Global,
+                    Element::Output,
+                    Some(&get_default_device_id(true)),
+                )?;
+                unit.set_property(
+                    kAudioOutputUnitProperty_EnableIO,
+                    Scope::Input,
+                    Element::Input,
+                    Some(&1u32),
+                )?;
+                unit.set_property(
+                    kAudioOutputUnitProperty_EnableIO,
+                    Scope::Output,
+                    Element::Output,
+                    Some(&0u32),
+                )?;
+                Ok(unit)
+            }
+            &Self::Specific(id) => {
+                let mut unit = AudioUnit::new(IOType::HalOutput)?;
+                unit.set_property(
+                    kAudioOutputUnitProperty_CurrentDevice,
+                    Scope::Global,
+                    Element::Output,
+                    Some(&id),
+                )?;
                 let device_type = self.device_type();
                 let value = if device_type.is_input() { 1u32 } else { 0 };
                 unit.set_property(
@@ -60,17 +98,53 @@ impl DeviceRequest {
     /// Return the name associated with this [`DeviceRequest`]. This is a descriptive name, and does not uniquely
     /// identify the device.
     pub fn name(&self) -> Cow<'_, str> {
-        match self {
-            DeviceRequest::DefaultOutput => Cow::Borrowed("Default output"),
-            DeviceRequest::SystemOutput => Cow::Borrowed("Notifications output"),
-            &DeviceRequest::Specific(id) => match get_device_name(id) {
-                Ok(s) => Cow::Owned(s),
-                Err(err) => {
-                    log::error!("Cannot get device name for ID: {}: {err}", id);
-                    Cow::Borrowed("<unknown>")
+        let (selector, fallback) = match self {
+            Self::DefaultOutput => (kAudioHardwarePropertyDefaultOutputDevice, "Default Output"),
+            Self::DefaultInput => (kAudioHardwarePropertyDefaultInputDevice, "Default Input"),
+            Self::SystemOutput => (
+                kAudioHardwarePropertyDefaultSystemOutputDevice,
+                "Notifications output",
+            ),
+            Self::VoiceInput => (c_uint::MAX, "Voice Input"),
+            &Self::Specific(id) => {
+                return match get_device_name(id) {
+                    Ok(s) => Cow::Owned(s),
+                    Err(err) => {
+                        log::error!("Cannot get device name for ID: {}: {err}", id);
+                        Cow::Borrowed("<unknown>")
+                    }
                 }
-            },
-        }
+            }
+        };
+
+        (|| {
+            let property_address = AudioObjectPropertyAddress {
+                mSelector: selector,
+                mScope: kAudioObjectPropertyScopeGlobal,
+                mElement: kAudioObjectPropertyElementMaster,
+            };
+
+            let mut audio_device_id: AudioDeviceID = 0;
+            let mut data_size = size_of::<AudioDeviceID>() as u32;
+            let status = unsafe {
+                AudioObjectGetPropertyData(
+                    kAudioObjectSystemObject as AudioObjectID,
+                    &property_address,
+                    0,
+                    null(),
+                    &mut data_size,
+                    (&raw mut audio_device_id).cast(),
+                )
+            };
+            coreaudio::Error::from_os_status(status)?;
+            let name = get_device_name(audio_device_id)?;
+            let name = Cow::Owned(format!("{fallback} ({name})"));
+            Ok(name)
+        })()
+        .unwrap_or_else(|err: Error| {
+            log::error!("Cannot get device name: {err}");
+            Cow::Borrowed(fallback)
+        })
     }
 
     /// Returns the [`DeviceType`] that best describes this [`DeviceRequest`].
@@ -84,17 +158,20 @@ impl DeviceRequest {
         };
         let supports_scope = |scope| match self {
             Self::DefaultOutput | Self::SystemOutput if matches!(scope, Scope::Output) => true,
+            Self::DefaultInput | Self::VoiceInput if matches!(scope, Scope::Input) => true,
             &Self::Specific(id) => log_error(get_audio_device_supports_scope(id, scope)),
             _ => false,
         };
         let is_default = match self {
-            Self::DefaultOutput | Self::SystemOutput => true,
+            Self::DefaultOutput | Self::SystemOutput | Self::DefaultInput | Self::VoiceInput => {
+                true
+            }
             &Self::Specific(id) => {
                 get_default_device_id(true) == Some(id) || get_default_device_id(false) == Some(id)
             }
         };
 
-        let mut type_ = DeviceType::empty();
+        let mut type_ = DeviceType::PHYSICAL;
         type_.set(DeviceType::INPUT, supports_scope(Scope::Input));
         type_.set(DeviceType::OUTPUT, supports_scope(Scope::Output));
         type_.set(DeviceType::DEFAULT, is_default);
@@ -104,7 +181,9 @@ impl DeviceRequest {
     /// Queries the accepted range of buffer sizes that the device accepts.
     pub fn buffer_size_range(&self) -> Result<(Option<usize>, Option<usize>), Error> {
         match self {
-            Self::DefaultOutput | Self::SystemOutput => Ok((None, None)),
+            Self::DefaultOutput | Self::SystemOutput | Self::DefaultInput | Self::VoiceInput => {
+                Ok((None, None))
+            }
             &Self::Specific(id) => {
                 let address = AudioObjectPropertyAddress {
                     mSelector: kAudioDevicePropertyBufferFrameSizeRange,
@@ -146,6 +225,11 @@ impl Device {
     /// Create a device following the default output.
     pub fn default_output() -> Self {
         Self::new(DeviceRequest::DefaultOutput)
+    }
+
+    /// Create a device following the default input.
+    pub fn default_input() -> Self {
+        Self::new(DeviceRequest::DefaultInput)
     }
 
     /// Consumes this device object, returning the associated Audio Unit.

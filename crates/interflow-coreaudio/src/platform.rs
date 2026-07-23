@@ -23,16 +23,15 @@ impl platform::Platform for Platform {
 
     fn default_device(&self, device_type: DeviceType) -> Result<Self::Device, Self::Error> {
         if device_type.is_output() || !device_type.is_input() {
-            return Ok(Device::default_output());
+            Ok(Device::default_output())
+        } else {
+            Ok(Device::default_input())
         }
-
-        let Some(id) = get_default_device_id(device_type.is_input()) else {
-            return Err(Error::NoMatchingDevices(device_type));
-        };
-        Ok(Device::from_id(id))
     }
 
     fn list_devices(&self) -> Result<impl IntoIterator<Item = Self::Device>, Self::Error> {
-        Ok(get_audio_device_ids()?.into_iter().map(Device::from_id))
+        Ok([Device::default_output(), Device::default_input()]
+            .into_iter()
+            .chain(get_audio_device_ids()?.into_iter().map(Device::from_id)))
     }
 }

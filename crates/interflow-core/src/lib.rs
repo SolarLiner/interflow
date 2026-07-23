@@ -13,7 +13,7 @@ pub mod prelude {
     pub use crate::buffer::{AudioBuffer, AudioMut, AudioRef};
     pub use crate::device::{self, Device as _};
     pub use crate::platform;
-    pub use crate::proxies;
+    pub use crate::proxies::{self, CreateStreamExt};
     pub use crate::stream::{
         self, AudioInput, AudioOutput, ChannelFlags, StreamHandle, StreamLatency, StreamProxy,
     };

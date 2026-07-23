@@ -1,3 +1,4 @@
+use interflow::core::proxies::PlatformProxy;
 use interflow::prelude::*;
 
 pub fn enumerate_devices(platform: &dyn PlatformProxy) -> anyhow::Result<()> {
