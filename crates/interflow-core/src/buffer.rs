@@ -450,4 +450,11 @@ impl<T> AudioMut<'_, T> {
             *frame *= factor;
         }
     }
+
+    pub fn as_ref(&self) -> AudioRef<'_, T> {
+        AudioRef {
+            buffer: self.buffer,
+            frame_slice: self.frame_slice,
+        }
+    }
 }

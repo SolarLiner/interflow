@@ -20,13 +20,14 @@ pub trait StreamLatency {
 }
 
 #[duplicate::duplicate_item(
-    name            bufty;
-    [AudioInput]    [AudioRef < 'a, T >];
-    [AudioOutput]   [AudioMut < 'a, T >];
+    name            bufty                 derive;
+    [AudioInput]    [AudioRef < 'a, T >]  [derive(Copy, Clone)];
+    [AudioOutput]   [AudioMut < 'a, T >]  [derive()];
 )]
 /// Plain-old-data object holding references to the audio buffer and the associated time-keeping
 /// [`Timestamp`]. This timestamp is associated with the stream, and in the cases where the
 /// driver provides timing information, it is used instead of relying on sample-counting.
+#[derive]
 pub struct name<'a, T> {
     /// Associated time stamp for this callback. The time represents the duration for which the
     /// stream has been opened, and is either provided by the driver if available, or is kept up
