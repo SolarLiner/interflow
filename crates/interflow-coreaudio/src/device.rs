@@ -253,7 +253,7 @@ impl ExtensionProvider for Device {
 impl device::Device for Device {
     type Error = Error;
 
-    type StreamHandle<Callback: stream::Callback> = Handle<Callback>;
+    type StreamHandle<Callback: 'static + stream::Callback> = Handle<Callback>;
 
     fn name(&self) -> Cow<'_, str> {
         self.request.name()

@@ -28,6 +28,7 @@ license.workspace = true
 [dependencies]
 anyhow.workspace = true
 interflow-core.workspace = true
+log.workspace = true
 
 [dev-dependencies]
 anyhow.workspace = true

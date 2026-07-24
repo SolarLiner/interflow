@@ -23,7 +23,9 @@ pub mod prelude {
 pub fn default_platform() -> core::proxies::DynPlatform {
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     return Rc::new(interflow_coreaudio::platform::Platform);
-    todo!("null backend")
+    log::warn!("No available platform found, falling back to null output");
+    // Fallback to null output
+    Rc::new(backends::null::Platform)
 }
 
 /// Return the default device, using the default platform as returned by [`default_platform`].

@@ -67,7 +67,10 @@ pub struct ResolvedStreamConfig {
 /// time natively.
 pub trait Device: ExtensionProvider {
     type Error: Send + Sync + 'static + std::error::Error;
-    type StreamHandle<Callback: stream::Callback>: StreamHandle<Callback, Error: Into<Self::Error>>;
+    type StreamHandle<Callback: 'static + stream::Callback>: StreamHandle<
+        Callback,
+        Error: Into<Self::Error>,
+    >;
 
     fn name(&self) -> Cow<'_, str>;
 

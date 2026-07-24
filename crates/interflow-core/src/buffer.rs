@@ -40,8 +40,8 @@ where
     [T]: FromZeros,
 {
     /// Creates a new buffer with the given number of frames and channels. The audio buffer will be zeroed out.
-    pub fn zeroed(frames: NonZeroUsize, channels: NonZeroUsize) -> Self {
-        let len = frames.get() * channels.get();
+    pub fn zeroed(frames: NonZeroUsize, channels: usize) -> Self {
+        let len = frames.get() * channels;
         AudioBuffer {
             data: <[T] as FromZeros>::new_box_zeroed_with_elems(len).unwrap(),
             frames,
@@ -119,6 +119,18 @@ pub enum FromDataError {
 }
 
 impl<T> AudioBuffer<T> {
+    /// Create an empty buffer that reports the given number of frames. No allocations are done since the slice is
+    /// 0-sized, as guaranteed by `Box::new`.
+    pub fn empty(frames: NonZeroUsize) -> Self {
+        const _NO_ALLOCATIONS: () = {
+            assert!(0 == size_of::<[f32; 0]>());
+        };
+
+        Self {
+            data: Box::new([]),
+            frames,
+        }
+    }
     pub fn from_fn(
         channels: NonZeroUsize,
         frames: NonZeroUsize,
@@ -136,28 +148,26 @@ impl<T> AudioBuffer<T> {
         }
     }
 
-    pub fn from_data_channels(
-        data: Box<[T]>,
-        channels: NonZeroUsize,
-    ) -> Result<Self, FromDataError> {
+    pub fn from_data_channels(data: Box<[T]>, channels: usize) -> Result<Self, FromDataError> {
         if data.is_empty() {
             return Err(FromDataError::Empty);
         }
-        if data.len() % channels.get() != 0 {
+        if data.len() % channels != 0 {
             return Err(FromDataError::InvalidChannelCount {
                 len: data.len(),
-                channels: channels.get(),
+                channels,
             });
         }
 
-        let frames = NonZeroUsize::new(data.len() / channels.get()).unwrap();
+        let frames = NonZeroUsize::new(data.len() / channels).unwrap();
         Ok(AudioBuffer { data, frames })
     }
 
     pub fn from_data_frames(data: Box<[T]>, frames: NonZeroUsize) -> Result<Self, FromDataError> {
         if data.is_empty() {
-            return Err(FromDataError::Empty);
+            return Ok(Self::empty(frames));
         }
+
         if data.len() % frames.get() != 0 {
             return Err(FromDataError::InvalidFrameCount {
                 len: data.len(),

@@ -20,7 +20,7 @@ pub struct Handle<Callback> {
     callback_retrieve: oneshot::Sender<oneshot::Sender<Callback>>,
 }
 
-impl<Callback> stream::StreamHandle<Callback> for Handle<Callback> {
+impl<Callback: 'static + stream::Callback> stream::StreamHandle<Callback> for Handle<Callback> {
     type Error = Infallible;
 
     fn eject(mut self) -> Result<Callback, Self::Error> {
@@ -117,7 +117,7 @@ impl<Callback: 'static + Send + stream::Callback> Handle<Callback> {
         };
         let mut buffer = AudioBuffer::zeroed(
             NonZeroUsize::new(frame_count as _).unwrap(),
-            NonZeroUsize::new(asbd.mChannelsPerFrame as _).unwrap(),
+            asbd.mChannelsPerFrame as _,
         );
 
         let (tx, rx) = oneshot::channel::<oneshot::Sender<Callback>>();
@@ -157,10 +157,7 @@ impl<Callback: 'static + Send + stream::Callback> Handle<Callback> {
                 channel_flags: &[],
             };
 
-            let mut dummy_buf = AudioBuffer::zeroed(
-                NonZeroUsize::new(1).unwrap(),
-                NonZeroUsize::new(channels as _).unwrap(),
-            );
+            let mut dummy_buf = AudioBuffer::zeroed(NonZeroUsize::new(1).unwrap(), channels as _);
             let mut dummy_output = AudioOutput {
                 buffer: dummy_buf.as_mut(),
                 timestamp: Timestamp::new(asbd.mSampleRate),
@@ -213,7 +210,7 @@ impl<Callback: 'static + Send + stream::Callback> Handle<Callback> {
         };
         let mut buffer = AudioBuffer::zeroed(
             NonZeroUsize::new(frame_size as _).unwrap(),
-            NonZeroUsize::new(asbd.mChannelsPerFrame as _).unwrap(),
+            asbd.mChannelsPerFrame as _,
         );
 
         let (tx, rx) = oneshot::channel::<oneshot::Sender<Callback>>();
@@ -234,10 +231,8 @@ impl<Callback: 'static + Send + stream::Callback> Handle<Callback> {
                 args.time_stamp.mSampleTime as _,
             );
 
-            let dummy_buf = AudioBuffer::zeroed(
-                NonZeroUsize::new(1).unwrap(),
-                NonZeroUsize::new(asbd.mChannelsPerFrame as _).unwrap(),
-            );
+            let dummy_buf =
+                AudioBuffer::zeroed(NonZeroUsize::new(1).unwrap(), asbd.mChannelsPerFrame as _);
             let dummy_input = AudioInput {
                 buffer: dummy_buf.as_ref(),
                 timestamp: Timestamp::new(resolved_config.sample_rate),

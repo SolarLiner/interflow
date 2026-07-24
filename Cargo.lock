@@ -313,6 +313,7 @@ dependencies = [
  "interflow-core",
  "interflow-coreaudio",
  "interflow-wasapi",
+ "log",
 ]
 
 [[package]]
