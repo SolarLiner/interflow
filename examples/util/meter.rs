@@ -19,7 +19,7 @@ impl PeakMeter {
         Self {
             output: Arc::new(AtomicF32::new(0.)),
             last_out: 0.,
-            decay,
+            decay: decay.max(1e-6),
             dt: 0.0,
         }
     }
@@ -57,7 +57,7 @@ impl PeakMeter {
             .flat_map(|ch| buffer[ch].iter().copied().max_by(f32::total_cmp))
             .max_by(f32::total_cmp)
             .unwrap_or(0.);
-        self.last_out = peak_lin.max(self.last_out * f32::exp(-self.decay * buffer_duration));
+        self.last_out = peak_lin.max(self.last_out * f32::exp(-buffer_duration / self.decay));
         self.output.store(self.last_out, Ordering::Relaxed);
         self.last_out
     }
