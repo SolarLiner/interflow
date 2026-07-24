@@ -46,13 +46,7 @@ impl DeviceRequest {
             Self::SystemOutput => Ok(AudioUnit::new(IOType::SystemOutput)?),
             Self::VoiceInput => Ok(AudioUnit::new(IOType::VoiceProcessingIO)?),
             Self::DefaultInput => {
-                let mut unit = AudioUnit::new(IOType::HalOutput)?;
-                unit.set_property(
-                    kAudioOutputUnitProperty_CurrentDevice,
-                    Scope::Global,
-                    Element::Output,
-                    Some(&get_default_device_id(true)),
-                )?;
+                let mut unit = AudioUnit::new_uninitialized(IOType::HalOutput)?;
                 unit.set_property(
                     kAudioOutputUnitProperty_EnableIO,
                     Scope::Input,
@@ -65,16 +59,18 @@ impl DeviceRequest {
                     Element::Output,
                     Some(&0u32),
                 )?;
-                Ok(unit)
-            }
-            &Self::Specific(id) => {
-                let mut unit = AudioUnit::new(IOType::HalOutput)?;
+                let input_device_id = get_default_device_id(true).unwrap_or(0);
                 unit.set_property(
                     kAudioOutputUnitProperty_CurrentDevice,
                     Scope::Global,
                     Element::Output,
-                    Some(&id),
+                    Some(&input_device_id),
                 )?;
+                unit.initialize()?;
+                Ok(unit)
+            }
+            &Self::Specific(id) => {
+                let mut unit = AudioUnit::new_uninitialized(IOType::HalOutput)?;
                 let device_type = self.device_type();
                 let value = if device_type.is_input() { 1u32 } else { 0 };
                 unit.set_property(
@@ -90,6 +86,13 @@ impl DeviceRequest {
                     Element::Output,
                     Some(&value),
                 )?;
+                unit.set_property(
+                    kAudioOutputUnitProperty_CurrentDevice,
+                    Scope::Global,
+                    Element::Output,
+                    Some(&id),
+                )?;
+                unit.initialize()?;
                 Ok(unit)
             }
         }

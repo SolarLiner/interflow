@@ -106,8 +106,8 @@ impl<Callback: 'static + Send + stream::Callback> Handle<Callback> {
         )?;
         let frame_count: u32 = audio_unit.get_property(
             kAudioDevicePropertyBufferFrameSize,
-            Scope::Input,
-            Element::Input,
+            Scope::Global,
+            Element::Output,
         )?;
         let resolved_config = ResolvedStreamConfig {
             sample_rate: asbd.mSampleRate,
