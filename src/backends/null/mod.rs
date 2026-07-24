@@ -1,11 +1,13 @@
 //! Null backend. Accepts any stream configuration, does nothing.
 
 use crate::prelude::*;
+use interflow_core::collect;
 use interflow_core::device::{ResolvedStreamConfig, StreamConfig};
 use interflow_core::stream::CallbackContext;
 use std::borrow::Cow;
 use std::convert::Infallible;
 use std::num::NonZeroUsize;
+use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
@@ -168,3 +170,12 @@ impl ExtensionProvider for NullStreamProxy {
 }
 
 impl StreamProxy for NullStreamProxy {}
+
+#[scattered_collect::scatter(collect::REGISTRAR)]
+static NULL_PLATFORM_REGISTRATION: collect::Registration = collect::Registration {
+    constructor: || {
+        log::error!("No platforms available, using null backend (you will not hear any sound)");
+        Some(Rc::new(Platform))
+    },
+    priority: i32::MIN + 1,
+};

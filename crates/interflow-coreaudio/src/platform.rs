@@ -3,7 +3,8 @@ use crate::device::Device;
 use crate::Error;
 use coreaudio::audio_unit::macos_helpers::{get_audio_device_ids, get_default_device_id};
 use interflow_core::traits::{ExtensionProvider, Selector};
-use interflow_core::{platform, DeviceType};
+use interflow_core::{collect, platform, DeviceType};
+use std::rc::Rc;
 
 /// The CoreAudio driver.
 pub struct Platform;
@@ -35,3 +36,10 @@ impl platform::Platform for Platform {
             .chain(get_audio_device_ids()?.into_iter().map(Device::from_id)))
     }
 }
+
+#[cfg(feature = "collect")]
+#[scattered_collect::scatter(collect::REGISTRAR)]
+static COREAUDIO_PLATFORM_REGISTRATION: collect::Registration = collect::Registration {
+    constructor: || Some(Rc::new(Platform)),
+    priority: collect::DEFAULT_PLATFORM_PRIORITY,
+};

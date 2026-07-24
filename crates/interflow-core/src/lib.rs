@@ -1,6 +1,8 @@
 use bitflags::bitflags;
 
 pub mod buffer;
+#[cfg(feature = "collect")]
+pub mod collect;
 pub mod device;
 pub mod platform;
 pub mod proxies;

@@ -13,3 +13,7 @@ coreaudio-sys = "0.2.17"
 log.workspace = true
 thiserror.workspace = true
 oneshot = { version = "0.2.1", features = ["std"] }
+scattered-collect = { workspace = true, optional = true }
+
+[features]
+collect = ["interflow-core/collect", "dep:scattered-collect"]

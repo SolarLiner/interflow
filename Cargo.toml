@@ -16,6 +16,7 @@ duplicate = "2.0.1"
 interflow-core = { path = "crates/interflow-core" }
 interflow-coreaudio = { path = "crates/interflow-coreaudio" }
 log = "0.4.29"
+scattered-collect = "0.21.3"
 thiserror = "2.0.18"
 
 [package]
@@ -27,7 +28,8 @@ license.workspace = true
 
 [dependencies]
 anyhow.workspace = true
-interflow-core.workspace = true
+interflow-core = { workspace = true, features = ["collect"] }
+scattered-collect.workspace = true
 log.workspace = true
 
 [dev-dependencies]
@@ -40,7 +42,7 @@ indicatif = "0.18.3"
 cfg_aliases = "0.2.1"
 
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
-interflow-coreaudio.workspace = true
+interflow-coreaudio = { workspace = true, features = ["collect"] }
 
 # [target.'cfg(any(target_os = "linux", target_os = "dragonfly", target_os = "freebsd", target_os = "netbsd"))'.dependencies]
 # alsa = "0.11.0"

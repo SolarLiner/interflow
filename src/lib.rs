@@ -1,8 +1,7 @@
 #![doc = include_str!("../README.md")]
 #![warn(missing_docs)]
 
-use std::rc::Rc;
-
+use anyhow::Context;
 use core::{stream, DeviceType};
 pub use interflow_core as core;
 use interflow_core::proxies::CreateStreamExt;
@@ -21,16 +20,18 @@ pub mod prelude {
 /// The platform is selected automatically based on your available and enabled backends.
 #[allow(unreachable_code)]
 pub fn default_platform() -> core::proxies::DynPlatform {
-    #[cfg(any(target_os = "macos", target_os = "ios"))]
-    return Rc::new(interflow_coreaudio::platform::Platform);
-    log::warn!("No available platform found, falling back to null output");
-    // Fallback to null output
-    Rc::new(backends::null::Platform)
+    let platform = core::collect::construct_platform().expect("FATAL: no platforms available");
+    log::info!("Using platform {}", platform.name());
+    platform
 }
 
 /// Return the default device, using the default platform as returned by [`default_platform`].
 pub fn default_device(device_type: DeviceType) -> anyhow::Result<core::proxies::DynDevice> {
-    default_platform().default_device(device_type)
+    let device = default_platform()
+        .default_device(device_type)
+        .context("Cannot get default device")?;
+    log::info!("Using device {}", device.name());
+    Ok(device)
 }
 
 /// Create a stream using the default device as returned by [`default_device`].
