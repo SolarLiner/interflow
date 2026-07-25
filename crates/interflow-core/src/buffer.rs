@@ -231,7 +231,7 @@ impl<T> AudioBuffer<T> {
             ops::Bound::Unbounded => 0,
         };
         let end = match index.end_bound() {
-            ops::Bound::Included(i) => *i - 1,
+            ops::Bound::Included(i) => *i + 1,
             ops::Bound::Excluded(i) => *i,
             ops::Bound::Unbounded => self.frames(),
         };
@@ -239,7 +239,7 @@ impl<T> AudioBuffer<T> {
         debug_assert!(end <= self.frames());
         out {
             buffer: self,
-            frame_slice: (begin, end + 1),
+            frame_slice: (begin, end),
         }
     }
 
@@ -454,10 +454,14 @@ impl<T> AudioMut<'_, T> {
         T: Copy + ops::MulAssign<T>,
     {
         let num_channels = self.channels();
-        for frame in &mut self.buffer.data
-            [num_channels * self.frame_slice.0..num_channels * self.frame_slice.1]
-        {
-            *frame *= factor;
+        let start = self.frame_slice.0;
+        let end = self.frame_slice.1;
+        let hop = self.buffer.frames();
+        for ch in 0..num_channels {
+            let offset = hop * ch;
+            for frame in &mut self.buffer.data[offset + start..offset + end] {
+                *frame *= factor;
+            }
         }
     }
 
