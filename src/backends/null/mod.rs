@@ -174,7 +174,7 @@ impl StreamProxy for NullStreamProxy {}
 #[scattered_collect::scatter(collect::REGISTRAR)]
 static NULL_PLATFORM_REGISTRATION: collect::Registration = collect::Registration {
     constructor: || {
-        log::error!("No platforms available, using null backend (you will not hear any sound)");
+        log::warn!("Using null backend (you may have no sound when using `default_stream`)");
         Some(Rc::new(Platform))
     },
     priority: i32::MIN + 1,

@@ -11,13 +11,16 @@ use interflow_core::DeviceType;
 use std::rc::Rc;
 use std::sync::OnceLock;
 use windows::Win32::Media::Audio;
+use windows::Win32::Media::Audio::{EDataFlow, ERole};
 use windows::Win32::System::Com;
+use interflow_core::proxies::PlatformProxy;
 
 pub struct Platform;
 
 impl ExtensionProvider for Platform {
     fn register<'a, 'sel>(&'a self, selector: &'sel mut Selector<'a>) -> &'sel mut Selector<'a> {
         selector
+            .register::<dyn DefaultForRole>(self)
     }
 }
 
@@ -127,6 +130,16 @@ impl AudioDeviceEnumerator {
 
             Ok(output_device_list.chain(input_device_list))
         }
+    }
+}
+
+pub trait DefaultForRole: PlatformProxy {
+    fn default_for_role(&self, flow: Audio::EDataFlow, role: Audio::ERole) -> Result<Device, Error>;
+}
+
+impl DefaultForRole for Platform {
+    fn default_for_role(&self, flow: EDataFlow, role: ERole) -> Result<Device, Error> {
+        Ok(audio_device_enumerator().get_default_device_with_role(flow, role)?)
     }
 }
 
