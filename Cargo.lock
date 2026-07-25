@@ -371,6 +371,8 @@ dependencies = [
  "bitflags",
  "duplicate",
  "interflow-core",
+ "log",
+ "scattered-collect",
  "thiserror",
  "windows",
  "zerocopy",

@@ -14,6 +14,8 @@ pub mod prelude {
     pub use interflow_core::prelude::*;
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     pub use interflow_coreaudio::prelude as coreaudio;
+    #[cfg(target_os = "windows")]
+    pub use interflow_wasapi::prelude as wasapi;
 }
 
 /// Return the default platform.

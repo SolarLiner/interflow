@@ -1,7 +1,6 @@
 //! An example of using the [`ExtensionProvider`] trait through [`ExtensionProviderExt::lookup`] to dynamically
 //! lookup types and traits registered by the backend types.
 use interflow::prelude::*;
-use interflow_coreaudio::device::CoreAudioDeviceExt;
 
 fn main() -> anyhow::Result<()> {
     let device = default_device(DeviceType::OUTPUT)?;

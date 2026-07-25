@@ -5,11 +5,16 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+collect = ["interflow-core/collect", "dep:scattered-collect"]
+
 [dependencies]
 bitflags.workspace = true
 duplicate.workspace = true
 interflow-core.workspace = true
+scattered-collect = { workspace = true, optional = true }
 thiserror.workspace = true
+log.workspace = true
 windows = { version = "0.62.2", features = [
     "Win32_Media_Audio",
     "Win32_Foundation",

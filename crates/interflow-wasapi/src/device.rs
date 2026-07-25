@@ -1,11 +1,13 @@
 use crate::util::MMDevice;
-use interflow_core::device::{ResolvedStreamConfig, StreamConfig};
-use interflow_core::stream;
+use crate::Error;
+use interflow_core::device::StreamConfig;
 use interflow_core::traits::{ExtensionProvider, Selector};
-use interflow_core::{device, DeviceType};
+use interflow_core::{device, stream, DeviceType};
 use std::borrow::Cow;
+use std::ptr::NonNull;
 use windows::Win32::Media::Audio;
 use windows::Win32::Media::Audio::{IAudioClient, IAudioClient3};
+use windows::Win32::Media::Multimedia;
 
 #[derive(Debug, Clone)]
 pub struct Device {
@@ -20,8 +22,8 @@ impl ExtensionProvider for Device {
 }
 
 impl device::Device for Device {
-    type Error = crate::Error;
-    type StreamHandle<Callback: stream::Callback> = ();
+    type Error = Error;
+    type StreamHandle<Callback: 'static + stream::Callback> = crate::stream::Handle<Callback>;
 
     fn name(&self) -> Cow<'_, str> {
         Cow::Owned(self.handle.name())
@@ -37,7 +39,7 @@ impl device::Device for Device {
     }
 
     fn is_config_supported(&self, config: &StreamConfig) -> bool {
-        todo!()
+        self.check_format(config).unwrap_or(false)
     }
 
     fn create_stream<Callback: 'static + Send + stream::Callback>(
@@ -45,13 +47,17 @@ impl device::Device for Device {
         stream_config: StreamConfig,
         callback: Callback,
     ) -> Result<Self::StreamHandle<Callback>, Self::Error> {
-        todo!()
+        crate::stream::Handle::new(self, stream_config, callback)
     }
 }
 
 impl Device {
-    fn get_mix_format(&self) -> Result<StreamConfig, crate::Error> {
-        let client = self.handle.activate::<IAudioClient>()?;
+    pub(crate) fn activate_audio_client(&self) -> Result<IAudioClient, Error> {
+        self.handle.activate::<IAudioClient>()
+    }
+
+    fn get_mix_format(&self) -> Result<StreamConfig, Error> {
+        let client = self.activate_audio_client()?;
         let mix_format = unsafe { client.GetMixFormat() }?;
         let format = unsafe { mix_format.read_unaligned() };
         let channels = format.nChannels as usize;
@@ -74,7 +80,7 @@ impl Device {
         })
     }
 
-    fn get_mix_format_iac3(&self) -> Result<StreamConfig, crate::Error> {
+    fn get_mix_format_iac3(&self) -> Result<StreamConfig, Error> {
         let client = self.handle.activate::<IAudioClient3>()?;
         let mut period_default = 0u32;
         let mut period_min = 0u32;
@@ -110,9 +116,59 @@ impl Device {
             exclusive: false,
         })
     }
+
+    fn check_format(&self, config: &StreamConfig) -> Result<bool, Error> {
+        unsafe {
+            let audio_client = self.activate_audio_client()?;
+            let sharemode = if config.exclusive {
+                Audio::AUDCLNT_SHAREMODE_EXCLUSIVE
+            } else {
+                Audio::AUDCLNT_SHAREMODE_SHARED
+            };
+            let format = Self::build_format(config);
+            if config.exclusive {
+                audio_client
+                    .IsFormatSupported(sharemode, &format, None)
+                    .ok()?;
+                return Ok(true);
+            }
+            let mut closest_ptr: *mut Audio::WAVEFORMATEX = std::ptr::null_mut();
+            let result = audio_client
+                .IsFormatSupported(sharemode, &format, Some(&mut closest_ptr));
+            let hr = result.0;
+            if hr == 0 {
+                return Ok(true);
+            }
+            if hr > 0 && !closest_ptr.is_null() {
+                let closest =
+                    crate::util::CoTask::new(NonNull::new_unchecked(closest_ptr));
+                let closest_format = closest.as_ptr().read_unaligned();
+                return Ok(closest_format.nSamplesPerSec == config.sample_rate as u32
+                    && closest_format.nChannels as usize
+                        == config.output_channels.max(config.input_channels));
+            }
+            Ok(false)
+        }
+    }
+
+    pub(crate) fn build_format(config: &StreamConfig) -> Audio::WAVEFORMATEX {
+        let channels = (config.input_channels.max(config.output_channels)) as u16;
+        let sample_rate = config.sample_rate as u32;
+        let sample_bytes = size_of::<f32>() as u16;
+        let avg_bytes_per_sec = channels as u32 * sample_rate * sample_bytes as u32;
+        let block_align = channels * sample_bytes;
+        Audio::WAVEFORMATEX {
+            wFormatTag: Multimedia::WAVE_FORMAT_IEEE_FLOAT as u16,
+            nChannels: channels,
+            nSamplesPerSec: sample_rate,
+            nAvgBytesPerSec: avg_bytes_per_sec,
+            nBlockAlign: block_align,
+            wBitsPerSample: 8 * sample_bytes,
+            cbSize: 0,
+        }
+    }
 }
 
-/// An iterable collection WASAPI devices.
 pub(crate) struct DeviceList {
     pub(crate) collection: Audio::IMMDeviceCollection,
     pub(crate) total_count: u32,
@@ -121,7 +177,6 @@ pub(crate) struct DeviceList {
 }
 
 unsafe impl Send for DeviceList {}
-
 unsafe impl Sync for DeviceList {}
 
 impl Iterator for DeviceList {
@@ -131,9 +186,8 @@ impl Iterator for DeviceList {
         if self.next_item >= self.total_count {
             return None;
         }
-
         unsafe {
-            let device = self.collection.Item(self.next_item).unwrap();
+            let device = self.collection.Item(self.next_item).ok()?;
             self.next_item += 1;
             Some(Device {
                 handle: MMDevice::new(device),

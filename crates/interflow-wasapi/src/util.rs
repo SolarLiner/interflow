@@ -2,22 +2,21 @@ use std::ffi::OsString;
 use std::marker::PhantomData;
 use std::ops;
 use std::os::windows::ffi::OsStringExt;
-use std::ptr::{self, NonNull};
+use std::ptr::NonNull;
 use std::sync::OnceLock;
 use windows::core::Interface;
 use windows::Win32::Devices::Properties;
 use windows::Win32::Media::Audio;
+use windows::Win32::System::Com::StructuredStorage;
 use windows::Win32::System::Com::{
-    self, CoInitializeEx, CoTaskMemFree, CoUninitialize, StructuredStorage, CLSCTX,
-    COINIT_MULTITHREADED, STGM_READ,
+    self, CoInitializeEx, CoTaskMemFree, CoUninitialize, CLSCTX, COINIT_MULTITHREADED, STGM_READ,
 };
 use windows::Win32::System::Variant::VT_LPWSTR;
 
-/// RAII object that guards the fact that COM is initialized.
-///
-// We store a raw pointer because it's the only way at the moment to remove `Send`/`Sync` from the
-// object.
-struct ComponentObjectModel(PhantomData<()>);
+pub(crate) struct ComponentObjectModel(PhantomData<()>);
+
+unsafe impl Send for ComponentObjectModel {}
+unsafe impl Sync for ComponentObjectModel {}
 
 impl ComponentObjectModel {
     pub unsafe fn create_instance<
@@ -34,14 +33,11 @@ impl ComponentObjectModel {
 }
 
 impl Drop for ComponentObjectModel {
-    #[inline]
     fn drop(&mut self) {
         unsafe { CoUninitialize() };
     }
 }
 
-/// Ensures that COM is initialized in this thread.
-#[inline]
 pub fn com() -> windows::core::Result<&'static ComponentObjectModel> {
     static VALUE: OnceLock<ComponentObjectModel> = OnceLock::new();
     let Some(value) = VALUE.get() else {
@@ -79,12 +75,10 @@ impl MMDevice {
 
 fn get_device_name(device: &Audio::IMMDevice) -> String {
     unsafe {
-        // Open the device's property store.
         let property_store = device
             .OpenPropertyStore(STGM_READ)
             .expect("could not open property store");
 
-        // Get the endpoint's friendly-name property, else the interface's friendly-name, else the device description.
         let mut property_value = property_store
             .GetValue(&Properties::DEVPKEY_Device_FriendlyName as *const _ as *const _)
             .or(property_store.GetValue(
@@ -95,26 +89,21 @@ fn get_device_name(device: &Audio::IMMDevice) -> String {
             .unwrap();
 
         let prop_variant = &property_value.Anonymous.Anonymous;
-
-        // Read the friendly-name from the union data field, expecting a *const u16.
         assert_eq!(VT_LPWSTR, prop_variant.vt);
 
         let ptr_utf16 = *(&prop_variant.Anonymous as *const _ as *const *const u16);
 
-        // Find the length of the friendly name.
         let mut len = 0;
         while *ptr_utf16.offset(len) != 0 {
             len += 1;
         }
 
-        // Convert to a string.
         let name_slice = std::slice::from_raw_parts(ptr_utf16, len as usize);
         let name_os_string: OsString = OsStringExt::from_wide(name_slice);
         let name = name_os_string
             .into_string()
             .unwrap_or_else(|os_string| os_string.to_string_lossy().into());
 
-        // Clean up.
         StructuredStorage::PropVariantClear(&mut property_value).unwrap();
 
         name
@@ -153,7 +142,7 @@ impl<T> CoTask<T> {
     }
 
     pub(super) unsafe fn construct(func: impl FnOnce(*mut *mut T) -> bool) -> Option<Self> {
-        let mut ptr = ptr::null_mut();
+        let mut ptr = std::ptr::null_mut();
         if !func(&mut ptr) {
             return None;
         }
