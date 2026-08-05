@@ -133,15 +133,13 @@ impl Device {
                 return Ok(true);
             }
             let mut closest_ptr: *mut Audio::WAVEFORMATEX = std::ptr::null_mut();
-            let result = audio_client
-                .IsFormatSupported(sharemode, &format, Some(&mut closest_ptr));
+            let result = audio_client.IsFormatSupported(sharemode, &format, Some(&mut closest_ptr));
             let hr = result.0;
             if hr == 0 {
                 return Ok(true);
             }
             if hr > 0 && !closest_ptr.is_null() {
-                let closest =
-                    crate::util::CoTask::new(NonNull::new_unchecked(closest_ptr));
+                let closest = crate::util::CoTask::new(NonNull::new_unchecked(closest_ptr));
                 let closest_format = closest.as_ptr().read_unaligned();
                 return Ok(closest_format.nSamplesPerSec == config.sample_rate as u32
                     && closest_format.nChannels as usize

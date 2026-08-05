@@ -35,10 +35,10 @@ jobs:
       - name: Install dependencies (Linux)
         if: ${{ matrix.os == 'ubuntu' }}
         run: sudo apt install libasound2-dev libspa-0.2-dev libpipewire-0.3-dev
-      - name: Install Rust 1.88
+      - name: Install Rust 1.96
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: 1.88
+          toolchain: 1.96
           default: true
           override: true
           components: clippy
@@ -52,7 +52,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        rust: [1.85, 1.86, 1.87, 1.88]
+        rust: [1.93, 1.94, 1.95, 1.96]
         feature-pipewire: [false, true]
         exclude:
           - os: windows-latest

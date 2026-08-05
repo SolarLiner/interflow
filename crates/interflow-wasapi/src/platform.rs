@@ -5,6 +5,7 @@ use bitflags::bitflags_match;
 #[cfg(feature = "collect")]
 use interflow_core::collect;
 use interflow_core::platform;
+use interflow_core::proxies::PlatformProxy;
 use interflow_core::traits::{ExtensionProvider, Selector};
 use interflow_core::DeviceType;
 #[cfg(feature = "collect")]
@@ -13,14 +14,12 @@ use std::sync::OnceLock;
 use windows::Win32::Media::Audio;
 use windows::Win32::Media::Audio::{EDataFlow, ERole};
 use windows::Win32::System::Com;
-use interflow_core::proxies::PlatformProxy;
 
 pub struct Platform;
 
 impl ExtensionProvider for Platform {
     fn register<'a, 'sel>(&'a self, selector: &'sel mut Selector<'a>) -> &'sel mut Selector<'a> {
-        selector
-            .register::<dyn DefaultForRole>(self)
+        selector.register::<dyn DefaultForRole>(self)
     }
 }
 
@@ -134,7 +133,8 @@ impl AudioDeviceEnumerator {
 }
 
 pub trait DefaultForRole: PlatformProxy {
-    fn default_for_role(&self, flow: Audio::EDataFlow, role: Audio::ERole) -> Result<Device, Error>;
+    fn default_for_role(&self, flow: Audio::EDataFlow, role: Audio::ERole)
+        -> Result<Device, Error>;
 }
 
 impl DefaultForRole for Platform {

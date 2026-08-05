@@ -32,7 +32,7 @@ jobs:
       - name: Set up Rust toolchain
         uses: actions-rs/toolchain@v1
         with:
-          toolchain: 1.86.0
+          toolchain: 1.96
           default: true
       - name: Build documentation
         run: cargo doc --all-features --no-deps
@@ -42,9 +42,9 @@ jobs:
             echo "::warning title=Invalid file permissions automatically fixed::$line"
           done
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v4
+        uses: actions/upload-pages-artifact@v5
         with:
           path: target/doc
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4 # or specific "vX.X.X" version tag for this action
+        uses: actions/deploy-pages@v5 # or specific "vX.X.X" version tag for this action

@@ -224,7 +224,7 @@ impl<Callback: AudioCallback> AudioCallback for DuplexCallback<Callback> {
                 input.out_sample_rate(),
                 input.in_sample_rate()
             );
-            self.num_input_channels = input.num_channels().get();
+            self.num_input_channels = input.num_channels();
             self.input.replace(input);
         }
 
@@ -251,7 +251,18 @@ impl<Callback: AudioCallback> AudioCallback for DuplexCallback<Callback> {
             slice.fill(0.0);
             AudioRef::from_interleaved(slice, self.num_input_channels).unwrap()
         };
-
+        let len = input.num_channels() * frames;
+        let slice = &mut self.storage_raw[..len];
+        match input.read_interleaved(slice, false) {
+            ReadStatus::UnderflowOccurred { .. } => {
+                log::error!("Output resample channel underflow occurred");
+            }
+            ReadStatus::OverflowCorrected { .. } => {
+                log::error!("Output resample channel overflow corrected");
+            }
+            _ => {}
+        }
+        let storage = AudioRef::from_interleaved(slice, input.num_channels()).unwrap();
         let input = AudioInput {
             timestamp: self.input_timestamp.as_timestamp(),
             buffer: storage,
@@ -476,11 +487,6 @@ pub fn create_duplex_stream<
                     capacity_seconds: (2.0 * config.target_latency_secs as f64).max(0.5),
                     latency_seconds: config.target_latency_secs as f64,
                     subtract_resampler_delay: true,
-                    quality: if config.high_quality_resampling {
-                        fixed_resample::ResampleQuality::High
-                    } else {
-                        fixed_resample::ResampleQuality::Low
-                    },
                     ..Default::default()
                 },
             },
