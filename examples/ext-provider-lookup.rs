@@ -11,6 +11,8 @@ fn main() -> anyhow::Result<()> {
     // type.
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     if let Some(device) = device.lookup::<coreaudio::Device>() {
+        use interflow_coreaudio::device::CoreAudioDeviceExt as _;
+
         let audio_unit = device.get_audio_unit()?;
         let stream_format = audio_unit.output_stream_format()?;
         println!(
