@@ -1,6 +1,7 @@
 //! # Interflow CoreAudio
 //!
 //! Interflow backend using CoreAudio for macOS and iOS applications
+#![cfg(any(target_os = "macos", target_os = "ios"))]
 #![warn(missing_docs)]
 use coreaudio::audio_unit;
 use interflow_core::DeviceType;
