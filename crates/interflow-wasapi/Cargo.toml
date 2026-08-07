@@ -8,13 +8,14 @@ license.workspace = true
 [features]
 collect = ["interflow-core/collect", "dep:scattered-collect"]
 
-[dependencies]
+[target.'cfg(target_os = "windows")'.dependencies]
 bitflags.workspace = true
 duplicate.workspace = true
 interflow-core.workspace = true
 scattered-collect = { workspace = true, optional = true }
 thiserror.workspace = true
 log.workspace = true
+zerocopy = { version = "0.8.39", features = ["std"] }
 windows = { version = "0.62.2", features = [
     "Win32_Media_Audio",
     "Win32_Foundation",
@@ -28,4 +29,3 @@ windows = { version = "0.62.2", features = [
     "Win32_Media_Multimedia",
     "Win32_UI_Shell_PropertiesSystem",
 ] }
-zerocopy = { version = "0.8.39", features = ["std"] }

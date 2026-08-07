@@ -1,3 +1,5 @@
+//! Module for timing-related types used inside of an audio callback.
+
 use std::ops;
 use std::ops::AddAssign;
 use std::sync::atomic::AtomicU64;
@@ -10,7 +12,7 @@ use std::time::Duration;
 ///
 /// ```rust
 /// use std::time::Duration;
-/// use interflow::timestamp::Timestamp;
+/// use interflow_core::timing::Timestamp;
 /// let mut ts = Timestamp::new(48000.);
 /// assert_eq!(ts.as_duration(), Duration::from_nanos(0));
 /// ts += 48;
@@ -21,7 +23,7 @@ use std::time::Duration;
 ///
 /// ```rust
 /// use std::time::Duration;
-/// use interflow::timestamp::Timestamp;
+/// use interflow_core::timing::Timestamp;
 /// let mut ts = Timestamp::new(48000.);
 /// assert_eq!(ts.as_duration(), Duration::from_nanos(0));
 /// let ts2 = ts + 48;
@@ -33,7 +35,7 @@ use std::time::Duration;
 ///
 /// ```rust
 /// use std::time::Duration;
-/// use interflow::timestamp::Timestamp;
+/// use interflow_core::timing::Timestamp;
 /// let ts = Timestamp::from_count(48000., 48);
 /// let ts_off = ts + Duration::from_millis(100);
 /// assert_eq!(ts_off.as_duration(), Duration::from_millis(101));
@@ -44,7 +46,7 @@ use std::time::Duration;
 ///
 /// ```rust
 /// use std::time::Duration;
-/// use interflow::timestamp::Timestamp;
+/// use interflow_core::timing::Timestamp;
 /// let ts = Timestamp::from_duration(44100., Duration::from_millis(1));
 /// assert_eq!(ts.counter, 44); // Note that the conversion is lossy, as only whole samples are
 ///                             // stored in the timestamp.
