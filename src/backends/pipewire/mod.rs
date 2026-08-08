@@ -8,5 +8,6 @@
 pub mod device;
 pub mod driver;
 pub mod error;
+mod filter;
 pub mod stream;
 mod utils;

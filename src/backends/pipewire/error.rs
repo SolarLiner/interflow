@@ -11,4 +11,6 @@ pub enum PipewireError {
     /// Error creating a pipewire stream (SPA pod serialization problem).
     #[error("Cannot create Pipewire stream: {0}")]
     GenError(#[from] libspa::pod::serialize::GenError),
+    #[error("Device has invalid type")]
+    InvalidDeviceType,
 }

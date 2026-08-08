@@ -10,6 +10,7 @@ use std::marker::PhantomData;
 
 /// The Interflow PipeWire backend driver.
 pub struct PipewireDriver {
+    // Needed to make this type unable to be constructed directly
     __init: PhantomData<()>,
 }
 

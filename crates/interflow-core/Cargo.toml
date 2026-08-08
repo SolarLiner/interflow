@@ -1,0 +1,18 @@
+[package]
+name = "interflow-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+bitflags.workspace = true
+duplicate.workspace = true
+thiserror.workspace = true
+
+scattered-collect = { version = "0.21.3", optional = true }
+zerocopy = { version = "0.8.39", features = ["alloc"] }
+
+[features]
+collect = ["dep:scattered-collect"]

@@ -1,31 +1,8 @@
-//! Module for handling timestamp and duration calculations in audio processing.
-//!
-//! This module provides the [`Timestamp`] type, which manages time-related operations
-//! for audio streams by tracking sample counts and their corresponding durations based
-//! on a specified sample rate. It supports basic arithmetic operations for sample
-//! counting and duration calculations, making it useful for audio stream synchronization
-//! and timing operations.
-//!
-//! # Examples
-//!
-//! ```rust
-//! use std::time::Duration;
-//! use interflow::timestamp::Timestamp;
-//!
-//! // Create a timestamp for 48 kHz audio
-//! let mut ts = Timestamp::new(48000.);
-//!
-//! // Add 48 samples (1ms at 48kHz)
-//! ts += 48;
-//! assert_eq!(ts.as_duration(), Duration::from_millis(1));
-//!
-//! // Convert a duration to samples
-//! let ts2 = Timestamp::from_duration(48000., Duration::from_millis(100));
-//! assert_eq!(ts2.counter, 4800);
-//! ```
+//! Module for timing-related types used inside of an audio callback.
 
 use std::ops;
 use std::ops::AddAssign;
+use std::sync::atomic::AtomicU64;
 use std::time::Duration;
 
 /// Timestamp value, which computes duration information from a provided samplerate and a running
@@ -35,7 +12,7 @@ use std::time::Duration;
 ///
 /// ```rust
 /// use std::time::Duration;
-/// use interflow::timestamp::Timestamp;
+/// use interflow_core::timing::Timestamp;
 /// let mut ts = Timestamp::new(48000.);
 /// assert_eq!(ts.as_duration(), Duration::from_nanos(0));
 /// ts += 48;
@@ -46,7 +23,7 @@ use std::time::Duration;
 ///
 /// ```rust
 /// use std::time::Duration;
-/// use interflow::timestamp::Timestamp;
+/// use interflow_core::timing::Timestamp;
 /// let mut ts = Timestamp::new(48000.);
 /// assert_eq!(ts.as_duration(), Duration::from_nanos(0));
 /// let ts2 = ts + 48;
@@ -58,7 +35,7 @@ use std::time::Duration;
 ///
 /// ```rust
 /// use std::time::Duration;
-/// use interflow::timestamp::Timestamp;
+/// use interflow_core::timing::Timestamp;
 /// let ts = Timestamp::from_count(48000., 48);
 /// let ts_off = ts + Duration::from_millis(100);
 /// assert_eq!(ts_off.as_duration(), Duration::from_millis(101));
@@ -69,7 +46,7 @@ use std::time::Duration;
 ///
 /// ```rust
 /// use std::time::Duration;
-/// use interflow::timestamp::Timestamp;
+/// use interflow_core::timing::Timestamp;
 /// let ts = Timestamp::from_duration(44100., Duration::from_millis(1));
 /// assert_eq!(ts.counter, 44); // Note that the conversion is lossy, as only whole samples are
 ///                             // stored in the timestamp.
@@ -140,13 +117,68 @@ impl Timestamp {
         }
     }
 
+    /// Compute the number of seconds represented in this [`Timestamp`].
+    pub fn as_seconds(&self) -> f64 {
+        self.counter as f64 / self.samplerate
+    }
+
     /// Compute the duration represented by this [`Timestamp`].
     pub fn as_duration(&self) -> Duration {
         Duration::from_secs_f64(self.as_seconds())
     }
+}
 
-    /// Compute the number of seconds represented in this [`Timestamp`].
-    pub fn as_seconds(&self) -> f64 {
-        self.counter as f64 / self.samplerate
+/// Atomic version of [`Timestamp`] to be shared between threads. Mainly used by the [`crate::duplex`] module, but
+/// may be useful in user code as well.
+pub struct AtomicTimestamp {
+    samplerate: AtomicU64,
+    counter: AtomicU64,
+}
+
+impl AtomicTimestamp {
+    /// Create a new [`AtomicTimestamp`] with zeroed values.
+    pub fn zeroed() -> Self {
+        Self {
+            samplerate: AtomicU64::new(0),
+            counter: AtomicU64::new(0),
+        }
+    }
+    /// Update the contents with the provided [`Timestamp`].
+    pub fn update(&self, ts: Timestamp) {
+        self.samplerate.store(
+            ts.samplerate.to_bits(),
+            std::sync::atomic::Ordering::Relaxed,
+        );
+        self.counter
+            .store(ts.counter, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Load values and return them as a [`Timestamp`].
+    pub fn as_timestamp(&self) -> Timestamp {
+        Timestamp {
+            samplerate: f64::from_bits(self.samplerate.load(std::sync::atomic::Ordering::Relaxed)),
+            counter: self.counter.load(std::sync::atomic::Ordering::Relaxed),
+        }
+    }
+
+    /// Add the provided number of frames to this.
+    pub fn add_frames(&self, frames: u64) {
+        self.counter
+            .fetch_add(frames, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+impl From<Timestamp> for AtomicTimestamp {
+    fn from(value: Timestamp) -> Self {
+        Self {
+            samplerate: AtomicU64::new(value.samplerate.to_bits()),
+            counter: AtomicU64::new(value.counter),
+        }
+    }
+}
+
+impl From<AtomicTimestamp> for Timestamp {
+    fn from(value: AtomicTimestamp) -> Self {
+        value.as_timestamp()
     }
 }

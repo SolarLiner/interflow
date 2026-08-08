@@ -23,13 +23,63 @@ and format conversion.
 
 - [x] WASAPI
 - [ ] ASIO
-- [x] ALSA
+- [ ] ALSA
 - [ ] PulseAudio
-- [x] PipeWire
+- [ ] PipeWire
 - [ ] JACK
 - [x] CoreAudio
 
-## Getting Started
+## Getting started
+
+Add `interflow` to the the list of dependencies in your `Cargo.toml` file:
+
+```toml
+[dependencies]
+interflow = { git = "https://github.com/SolarLiner/interflow.git", version = "0.1.0" }
+```
+
+Then, in your main function, import `interflow::prelude::*` and use the `default_stream` function:
+
+```rust,ignore
+use interflow::prelude::*;
+
+fn main() {
+  let handle = default_stream(DeviceType::OUTPUT, |context, _input, output| {
+    let time = context.timestamp.as_seconds(); // stream timestamp
+    let time = output.timestamp.as_seconds(); // output stream provided timestamp (generally more accurate, also
+    // available for input)
+    for i in 0..output.buffer.frames() {
+      output.buffer.set_mono(0.0); // example: output silence
+    }
+  });
+  std::thread::sleep(std::time::Duration::from_secs(10));
+  let callback = handle.eject().unwrap(); // You can "eject" your callback and retrieve it, so you can reuse it in
+                                          // another stream. If you don't eject it, the callback will be dropped
+                                          // with the handle itself
+}
+```
+
+It is important to import backends that you want to use, which is done automatically for default backends with `use
+interflow::prelude::*;`. Additional third-party backends that participate in automatic registration must be imported
+separately.
+
+The mechanism used is link-time registration through the
+[`scattered-collections`](https://docs.rs/scattered-collect/latest/scattered_collect/) crate. It is possible to use
+backends directly:
+
+```rust,ignore
+use interflow::prelude::*;
+
+fn main() {
+  let device = wasapi::platform::Platform.default_device(DeviceType::OUTPUT).unwrap();
+  let handle = device.create_default_stream(...);
+}
+```
+
+Take a look at the [examples](./examples) for an overview of the available API, as well
+as [the docs](https://solarliner.dev/interflow) for the generated reference documentation.
+
+## Contributing
 
 ### Prerequisites
 

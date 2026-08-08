@@ -61,16 +61,34 @@ impl AudioDeviceEnumerator {
         &self,
         device_type: DeviceType,
     ) -> Result<Option<WasapiDevice>, error::WasapiError> {
-        let data_flow = bitflags_match!(device_type, {
+        let Some(flow) = bitflags_match!(device_type, {
             DeviceType::INPUT | DeviceType::PHYSICAL => Some(Audio::eCapture),
             DeviceType::OUTPUT | DeviceType::PHYSICAL => Some(Audio::eRender),
             _ => None,
-        });
+        }) else {
+            return Ok(None);
+        };
 
-        data_flow.map_or(Ok(None), |flow| unsafe {
-            let device = self.0.GetDefaultAudioEndpoint(flow, Audio::eConsole)?;
-            Ok(Some(WasapiDevice::new(device, device_type)))
-        })
+        self.get_default_device_with_role(flow, Audio::eConsole)
+            .map(Some)
+    }
+
+    fn get_default_device_with_role(
+        &self,
+        flow: Audio::EDataFlow,
+        role: Audio::ERole,
+    ) -> Result<WasapiDevice, error::WasapiError> {
+        unsafe {
+            let device = self.0.GetDefaultAudioEndpoint(flow, role)?;
+            let device_type = match flow {
+                Audio::eRender => DeviceType::OUTPUT,
+                _ => DeviceType::INPUT,
+            };
+            Ok(WasapiDevice::new(
+                device,
+                DeviceType::PHYSICAL | device_type,
+            ))
+        }
     }
 
     // Returns a chained iterator of output and input devices.

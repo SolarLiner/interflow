@@ -13,4 +13,7 @@ pub enum WasapiError {
     /// Windows Foundation error
     #[error("Win32 error: {0}")]
     FoundationError(String),
+    /// Duplex stream requested, unsupported by WASAPI
+    #[error("Unsupported duplex stream requested")]
+    DuplexStreamRequested,
 }

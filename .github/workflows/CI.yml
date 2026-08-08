@@ -53,12 +53,6 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
         rust: [1.93, 1.94, 1.95, 1.96]
-        feature-pipewire: [false, true]
-        exclude:
-          - os: windows-latest
-            feature-pipewire: true
-          - os: macos-latest
-            feature-pipewire: true
     runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v6
@@ -72,6 +66,6 @@ jobs:
         default: true
         override: true
     - name: Build
-      run: cargo build --verbose ${{ matrix.feature-pipewire && '--features pipewire' || '' }}
+      run: cargo build --verbose
     - name: Run tests
-      run: cargo test --verbose ${{ matrix.feature-pipewire && '--features pipewire' || '' }}
+      run: cargo test --workspace --verbose

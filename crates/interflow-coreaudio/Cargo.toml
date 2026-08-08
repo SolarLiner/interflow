@@ -1,0 +1,19 @@
+[package]
+name = "interflow-coreaudio"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+interflow-core.workspace = true
+
+coreaudio-rs = "0.14.1"
+coreaudio-sys = "0.2.17"
+log.workspace = true
+thiserror.workspace = true
+oneshot = { version = "0.2.1", features = ["std"] }
+scattered-collect = { workspace = true, optional = true }
+
+[features]
+collect = ["interflow-core/collect", "dep:scattered-collect"]

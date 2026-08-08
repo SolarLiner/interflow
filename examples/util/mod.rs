@@ -4,13 +4,17 @@
 // Unfortunate consequence is that we lose the genuine unused warnings.
 #![allow(unused)]
 
+use crate::util::meter::Metered;
+use dialoguer::console::{Style, Term};
 use indicatif::{ProgressBar, ProgressStyle};
+use interflow_core::stream;
+use std::fmt::Write;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
-use std::thread;
+use std::{iter, thread};
 
-pub mod enumerate;
 pub mod meter;
+pub mod noop;
 pub mod sine;
 
 #[derive(Debug)]
@@ -68,4 +72,67 @@ pub fn display_peakmeter(value: Arc<AtomicF32>) -> anyhow::Result<()> {
 pub fn normalize(min: f32, max: f32, value: f32) -> f32 {
     let range = max - min;
     (value - min) / range
+}
+
+pub fn prepare_display<C: stream::Callback>(
+    callback: C,
+) -> (meter::Metered<C>, impl Fn() -> anyhow::Result<()>) {
+    let meter = Metered::new(callback, 100e-3);
+    let shared = meter.shared();
+    let meter_display = make_meter_display(-60.0, 6.0, 10);
+    let display = move || {
+        let term = Term::stdout();
+        loop {
+            let elapsed = shared.timestamp.as_timestamp().as_seconds();
+
+            let inp = shared.input.load(Ordering::Relaxed);
+            let inp = 20.0 * inp.log10();
+            let inp_display = meter_display(inp);
+
+            let out = shared.output.load(Ordering::Relaxed);
+            let out = 20.0 * out.log10();
+            let out_display = meter_display(out);
+
+            term.write_str(&format!(
+                "Elapsed: {elapsed:3.2} s\tInput: {inp_display} {inp:2.1} dB\tOutput: {out_display} {out:2.1} dB"
+            ))?;
+            std::thread::sleep(std::time::Duration::from_millis(50));
+            term.clear_line()?;
+        }
+    };
+    (meter, display)
+}
+
+fn make_meter_display(min: f32, max: f32, initial_size: usize) -> impl Fn(f32) -> String {
+    const WIDTH: usize = 2;
+    let size = WIDTH * initial_size;
+    let fsize = size as f32;
+    let position =
+        move |v: f32| f32::round(fsize * normalize(min, max, v).clamp(0.0, 1.0)) as usize;
+    let fullscale_pos = position(0.0);
+    let style_below = Style::new().green();
+    let style_above = Style::new().red();
+    let style_background = Style::new().black().bright();
+
+    move |v: f32| {
+        let pos = position(v);
+        let mut s = String::new();
+        for i in 0..initial_size {
+            let start = WIDTH * i;
+            let end = start + WIDTH;
+            let style = if end < fullscale_pos {
+                &style_below
+            } else {
+                &style_above
+            };
+            if end < pos {
+                write!(s, "{}", style.apply_to('⣿'));
+            } else if start + 1 == pos {
+                write!(s, "{}", style.apply_to('⡇'));
+            } else {
+                write!(s, "{}", style_background.apply_to(' '));
+            }
+        }
+        s
+    }
 }
